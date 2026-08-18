@@ -1,0 +1,103 @@
+- name: Base setup
+  hosts: test
+  vars:
+    admin_user: job
+
+  tasks:
+    - name: Update and upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+
+    - name: Remove unneeded packages
+      ansible.builtin.apt:
+        autoremove: true
+
+    - name: Base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - git
+          - vim
+          - htop
+          - unattended-upgrades
+          - sudo
+        state: present
+
+    - name: Timezone
+      community.general.timezone:
+        name: Europe/Amsterdam
+
+    - name: Admin user
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups: sudo
+        append: true
+        shell: /bin/bash
+
+    - name: Authorized key for admin user
+      ansible.posix.authorized_key:
+        user: "{{ admin_user }}"
+        key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+
+    - name: Passwordless sudo
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/{{ admin_user }}
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: "0440"
+        validate: visudo -cf %s
+
+    - name: Enable unattended upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        mode: "0644"
+    
+    - name: Docker repository
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: https://download.docker.com/linux/debian
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components: stable
+        architectures: amd64
+        signed_by: https://download.docker.com/linux/debian/gpg
+        state: present
+        enabled: true
+    
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Add admin user to docker group
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups: docker
+        append: true
+
+    - name: Harden sshd
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?{{ item.key }}"
+        line: "{{ item.key }} {{ item.value }}"
+        validate: sshd -t -f %s
+      loop:
+        - { key: PermitRootLogin, value: prohibit-password }
+        - { key: PasswordAuthentication, value: "no" }
+      notify: restart sshd
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

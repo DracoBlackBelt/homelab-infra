@@ -1,0 +1,8 @@
+- name: Test
+  hosts: test
+  tasks:
+    - name: Create a file
+      ansible.builtin.copy:
+        dest: /root/hello.txt
+        content: "Made by Huisman.dev\n"
+        mode: "0644"

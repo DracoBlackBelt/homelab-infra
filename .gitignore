@@ -1,0 +1,7 @@
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+ansible/inventory/*.cache
+.vault-pass
