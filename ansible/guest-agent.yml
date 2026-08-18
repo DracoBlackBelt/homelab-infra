@@ -1,0 +1,17 @@
+# Requires the VM to have `agent: 1` set in Proxmox, which tofu/vms.tf does.
+# The service BindsTo /dev/virtio-ports/org.qemu.guest_agent.0, so without that
+# channel starting it fails outright rather than being skipped.
+- name: QEMU guest agent
+  hosts: vms
+  tasks:
+    - name: Install qemu-guest-agent
+      ansible.builtin.apt:
+        name: qemu-guest-agent
+        state: present
+        update_cache: true
+
+    - name: Enable and start qemu-guest-agent
+      ansible.builtin.service:
+        name: qemu-guest-agent
+        enabled: true
+        state: started

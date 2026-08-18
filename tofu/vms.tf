@@ -27,10 +27,16 @@ resource "proxmox_virtual_environment_vm" "vms" {
     vm_id = proxmox_virtual_environment_vm.debian_13_template.vm_id
   }
 
-  # No agent block on purpose: qemu-guest-agent is not in the cloud image, so
-  # enabling it would make the provider wait ~15m on an agent that never
-  # answers. stop_on_destroy avoids an ACPI shutdown that hangs for the same
-  # reason.
+  # enabled attaches the virtio-serial channel the agent daemon BindsTo, so the
+  # agent works as soon as ansible/guest-agent.yml installs it. wait_for_ip
+  # stays disabled permanently: a freshly cloned VM never has the agent yet, and
+  # waiting on it is what made apply hang for 15m.
+  agent {
+    enabled = true
+    wait_for_ip { disabled = true }
+  }
+
+  # Without the agent an ACPI shutdown can hang, so force-stop on destroy.
   stop_on_destroy = true
 
   cpu {
