@@ -8,8 +8,8 @@ resource "proxmox_virtual_environment_container" "test01" {
   features {
     nesting = true
   }
-  
-  cpu    { cores     = 2 }
+
+  cpu { cores = 2 }
   memory { dedicated = 1024 }
 
   disk {
@@ -36,7 +36,7 @@ resource "proxmox_virtual_environment_container" "test01" {
       }
     }
     user_account {
-      keys = [trimspace(file("~/.ssh/id_ed25519.pub"))]
+      keys = [local.ssh_public_key]
     }
   }
 }
