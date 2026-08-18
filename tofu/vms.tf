@@ -1,3 +1,8 @@
+moved {
+  from = proxmox_virtual_environment_vm.test_vm01
+  to   = proxmox_virtual_environment_vm.debian_13_template
+}
+
 resource "proxmox_download_file" "debian_13_genericcloud" {
   content_type = "import"
   datastore_id = "local"
@@ -6,17 +11,16 @@ resource "proxmox_download_file" "debian_13_genericcloud" {
   file_name    = "debian-13-genericcloud-amd64.qcow2"
 }
 
-resource "proxmox_virtual_environment_vm" "test_vm01" {
-  name      = "test-vm01"
-  node_name = "prox"
-  vm_id     = 2000
+# Base image for cloning VMs from. qemu-guest-agent is already installed
+# and enabled on its disk, so clones don't need to install it on first boot.
+resource "proxmox_virtual_environment_vm" "debian_13_template" {
+  name        = "debian-13-template"
+  description = "Managed by OpenTofu"
+  node_name   = "prox"
+  vm_id       = 2000
 
-  # required unless qemu-guest-agent is installed and enabled in the image
-  stop_on_destroy = true
-
-  agent {
-    enabled = true
-  }
+  template = true
+  started  = false
 
   cpu {
     cores = 2
@@ -33,6 +37,48 @@ resource "proxmox_virtual_environment_vm" "test_vm01" {
     iothread     = true
     discard      = "on"
     size         = 8
+  }
+
+  network_device {
+    bridge = "vmbr0"
+  }
+
+  initialization {
+    datastore_id = "fastpool"
+
+    ip_config {
+      ipv4 {
+        address = "dhcp"
+      }
+    }
+
+    user_account {
+      username = "debian"
+      keys     = [trimspace(file("~/.ssh/id_ed25519.pub"))]
+    }
+  }
+}
+
+resource "proxmox_virtual_environment_vm" "vm01" {
+  name        = "test-vm01"
+  description = "Managed by OpenTofu"
+  node_name   = "prox"
+  vm_id       = 211
+
+  clone {
+    vm_id = proxmox_virtual_environment_vm.debian_13_template.vm_id
+  }
+
+  agent {
+    enabled = true
+  }
+
+  cpu {
+    cores = 2
+  }
+
+  memory {
+    dedicated = 2048
   }
 
   network_device {
