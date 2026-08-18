@@ -1,12 +1,22 @@
 # VMs cloned from the template in templates.tf. Add an entry to create one.
-locals {
-  vms = {
+# cores/memory/disk_size are optional -- omit them to take the defaults.
+variable "vms" {
+  type = map(object({
+    vm_id     = number
+    name      = string
+    address   = string
+    cores     = optional(number, 2)
+    memory    = optional(number, 2048)
+    disk_size = optional(number, 8)
+  }))
+
+  default = {
     vm01 = { vm_id = 211, name = "test-vm01", address = "10.0.0.41/24" }
   }
 }
 
 resource "proxmox_virtual_environment_vm" "vms" {
-  for_each = local.vms
+  for_each = var.vms
 
   name        = each.value.name
   description = "Managed by OpenTofu"
@@ -24,11 +34,19 @@ resource "proxmox_virtual_environment_vm" "vms" {
   stop_on_destroy = true
 
   cpu {
-    cores = 2
+    cores = each.value.cores
   }
 
   memory {
-    dedicated = 2048
+    dedicated = each.value.memory
+  }
+
+  disk {
+    datastore_id = "fastpool"
+    interface    = "virtio0"
+    iothread     = true
+    discard      = "on"
+    size         = each.value.disk_size
   }
 
   network_device {
@@ -55,5 +73,5 @@ resource "proxmox_virtual_environment_vm" "vms" {
 # Static IPs for the Ansible inventory. The guest agent is off, so Proxmox
 # cannot report guest IPs and these config values are the source of truth.
 output "vm_addresses" {
-  value = { for k, v in local.vms : v.name => split("/", v.address)[0] }
+  value = { for k, v in var.vms : v.name => split("/", v.address)[0] }
 }
