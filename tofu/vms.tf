@@ -1,77 +1,27 @@
-moved {
-  from = proxmox_virtual_environment_vm.test_vm01
-  to   = proxmox_virtual_environment_vm.debian_13_template
+# VMs cloned from the template in templates.tf. Add an entry to create one.
+locals {
+  vms = {
+    vm01 = { vm_id = 211, name = "test-vm01", address = "10.0.0.41/24" }
+  }
 }
 
-resource "proxmox_download_file" "debian_13_genericcloud" {
-  content_type = "import"
-  datastore_id = "local"
-  node_name    = "prox"
-  url          = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
-  file_name    = "debian-13-genericcloud-amd64.qcow2"
-}
+resource "proxmox_virtual_environment_vm" "vms" {
+  for_each = local.vms
 
-# Base image for cloning VMs from. qemu-guest-agent is already installed
-# and enabled on its disk, so clones don't need to install it on first boot.
-resource "proxmox_virtual_environment_vm" "debian_13_template" {
-  name        = "debian-13-template"
+  name        = each.value.name
   description = "Managed by OpenTofu"
   node_name   = "prox"
-  vm_id       = 2000
-
-  template = true
-  started  = false
-
-  cpu {
-    cores = 2
-  }
-
-  memory {
-    dedicated = 2048
-  }
-
-  disk {
-    datastore_id = "fastpool"
-    import_from  = proxmox_download_file.debian_13_genericcloud.id
-    interface    = "virtio0"
-    iothread     = true
-    discard      = "on"
-    size         = 8
-  }
-
-  network_device {
-    bridge = "vmbr0"
-  }
-
-  initialization {
-    datastore_id = "fastpool"
-
-    ip_config {
-      ipv4 {
-        address = "dhcp"
-      }
-    }
-
-    user_account {
-      username = "debian"
-      keys     = [trimspace(file("~/.ssh/id_ed25519.pub"))]
-    }
-  }
-}
-
-resource "proxmox_virtual_environment_vm" "vm01" {
-  name        = "test-vm01"
-  description = "Managed by OpenTofu"
-  node_name   = "prox"
-  vm_id       = 211
+  vm_id       = each.value.vm_id
 
   clone {
     vm_id = proxmox_virtual_environment_vm.debian_13_template.vm_id
   }
 
-  agent {
-    enabled = true
-  }
+  # No agent block on purpose: qemu-guest-agent is not in the cloud image, so
+  # enabling it would make the provider wait ~15m on an agent that never
+  # answers. stop_on_destroy avoids an ACPI shutdown that hangs for the same
+  # reason.
+  stop_on_destroy = true
 
   cpu {
     cores = 2
@@ -90,14 +40,20 @@ resource "proxmox_virtual_environment_vm" "vm01" {
 
     ip_config {
       ipv4 {
-        address = "10.0.0.41/24"
+        address = each.value.address
         gateway = "10.0.0.1"
       }
     }
 
     user_account {
       username = "debian"
-      keys     = [trimspace(file("~/.ssh/id_ed25519.pub"))]
+      keys     = [local.ssh_public_key]
     }
   }
+}
+
+# Static IPs for the Ansible inventory. The guest agent is off, so Proxmox
+# cannot report guest IPs and these config values are the source of truth.
+output "vm_addresses" {
+  value = { for k, v in local.vms : v.name => split("/", v.address)[0] }
 }
