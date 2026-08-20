@@ -1,5 +1,5 @@
 - name: Test
-  hosts: test
+  hosts: vms
   tasks:
     - name: Create a file
       ansible.builtin.copy:

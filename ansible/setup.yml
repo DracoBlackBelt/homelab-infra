@@ -1,5 +1,5 @@
 - name: Base setup
-  hosts: test
+  hosts: vms
   vars:
     admin_user: job
 
