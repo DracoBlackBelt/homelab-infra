@@ -100,7 +100,7 @@ resource "proxmox_virtual_environment_vm" "vms" {
     }
 
     user_account {
-      username = "debian"
+      username = local.vm_username
       keys     = [local.ssh_public_key]
     }
   }
@@ -113,9 +113,20 @@ resource "proxmox_virtual_environment_vm" "vms" {
   }
 }
 
-# Static IPs for the Ansible inventory. The agent reports addresses too, but
-# these are set by cloud-init from the config above, so the config stays the
-# source of truth and is known before the VM ever boots.
-output "vm_addresses" {
-  value = { for k, v in var.vms : v.name => split("/", v.address)[0] }
+# Read by ansible/inventory/tofu.py, which is Ansible's only inventory: add a VM
+# to the map above and Ansible picks it up on the next run, with nothing to keep
+# in sync by hand.
+#
+# The addresses come from the config rather than from the agent's report. They
+# are what cloud-init was told to set, so they are known before the VM boots and
+# cannot go stale between an apply and a play.
+output "vm_inventory" {
+  description = "name => host vars, consumed by the Ansible inventory script."
+
+  value = {
+    for k, v in var.vms : v.name => {
+      ansible_host = split("/", v.address)[0]
+      ansible_user = local.vm_username
+    }
+  }
 }
