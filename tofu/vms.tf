@@ -1,5 +1,5 @@
-# VMs cloned from the template in templates.tf. Add an entry to create one.
-# cores/memory/disk_size are optional -- omit them to take the defaults.
+# VMs cloned from the golden template looked up in templates.tf. Add an entry to
+# create one. cores/memory/disk_size are optional -- omit them for the defaults.
 variable "vms" {
   type = map(object({
     vm_id     = number
@@ -24,28 +24,64 @@ resource "proxmox_virtual_environment_vm" "vms" {
   vm_id       = each.value.vm_id
 
   clone {
-    vm_id = proxmox_virtual_environment_vm.debian_13_template.vm_id
+    vm_id = data.proxmox_vm.golden_template.id
   }
 
-  # No agent block on purpose: qemu-guest-agent is not in the cloud image, so
-  # enabling it would make the provider wait ~15m on an agent that never
-  # answers. stop_on_destroy avoids an ACPI shutdown that hangs for the same
-  # reason.
+  # qemu-guest-agent is already on the template's disk, so enabling the agent
+  # here attaches the virtio-serial channel the daemon binds to and it answers
+  # on first boot -- no provisioning step. The provider therefore waits for a
+  # real guest IP before calling the VM created. timeout cuts the 15m default
+  # down: if the agent has not answered within 5m the template is broken, and
+  # failing fast beats a quarter-hour hang.
+  agent {
+    enabled = true
+    timeout = "5m"
+    trim    = true
+  }
+
+  # These VMs are disposable, so force-stop on destroy rather than waiting out a
+  # graceful shutdown.
   stop_on_destroy = true
+
+  # Hardware is otherwise inherited from the template, but these two cannot be:
+  # the provider has defaults of its own for them, and would push seabios and a
+  # qemu64 CPU onto an image built as UEFI with cpu=host.
+  bios = "ovmf"
+
+  # The clone brings its own EFI vars disk along; this block exists because the
+  # provider requires one whenever bios is ovmf. Values match the template's.
+  efi_disk {
+    datastore_id      = "fastpool"
+    type              = "4m"
+    pre_enrolled_keys = false
+  }
 
   cpu {
     cores = each.value.cores
+    type  = "host"
   }
 
   memory {
     dedicated = each.value.memory
   }
 
+  # virtio-scsi-single gives the disk its own controller, which is what makes
+  # iothread legal -- on virtio-scsi-pci Proxmox ignores the flag. The provider
+  # would send its own virtio-scsi-pci default here, so this line is what keeps
+  # clones off it, whatever the template says.
+  scsi_hardware = "virtio-scsi-single"
+
+  # scsi0 because that is where the template's disk lives and what its boot
+  # order points at. discard lets a guest fstrim return blocks to the ZFS pool,
+  # which is also what makes the template's fstrim_cloned_disks=1 do anything.
+  # ssd only advertises the zvol as non-rotational, so the guest stops treating
+  # it like a spindle.
   disk {
     datastore_id = "fastpool"
-    interface    = "virtio0"
-    iothread     = true
+    interface    = "scsi0"
     discard      = "on"
+    iothread     = true
+    ssd          = true
     size         = each.value.disk_size
   }
 
@@ -68,10 +104,18 @@ resource "proxmox_virtual_environment_vm" "vms" {
       keys     = [local.ssh_public_key]
     }
   }
+
+  lifecycle {
+    precondition {
+      condition     = data.proxmox_vm.golden_template.template
+      error_message = "vmid ${var.template_vm_id} exists but is not a Proxmox template -- run `qm template ${var.template_vm_id}`, or see docs/golden-template.md."
+    }
+  }
 }
 
-# Static IPs for the Ansible inventory. The guest agent is off, so Proxmox
-# cannot report guest IPs and these config values are the source of truth.
+# Static IPs for the Ansible inventory. The agent reports addresses too, but
+# these are set by cloud-init from the config above, so the config stays the
+# source of truth and is known before the VM ever boots.
 output "vm_addresses" {
   value = { for k, v in var.vms : v.name => split("/", v.address)[0] }
 }
