@@ -1,7 +1,10 @@
 - name: Base setup
   hosts: vms
   vars:
-    admin_user: job
+    # The user cloud-init created, which is also who this play connected as --
+    # tofu exports it as ansible_user, so the name is defined in exactly one
+    # place. There is no separate admin account: debian *is* the admin.
+    admin_user: "{{ ansible_user }}"
 
   tasks:
     # SSH answers before cloud-init has finished, and cloud-init's own apt run
@@ -42,12 +45,21 @@
       community.general.timezone:
         name: Europe/Amsterdam
 
-    - name: Admin user
+    - name: Promote the cloud-init user to admin
       ansible.builtin.user:
         name: "{{ admin_user }}"
-        groups: sudo
+        groups:
+          - sudo
+          - docker
         append: true
         shell: /bin/bash
+        # cloud-init gives the user /bin/sh; a login-capable shell makes it a
+        # usable admin account, and the docker group keeps `docker` usable
+        # without sudo. The SSH key itself was installed by cloud-init from the
+        # same file this task reads, so the authorized_key task below is a
+        # no-op on healthy VMs -- it only self-heals a template whose key went
+        # stale. It must stay, though: it is the first thing Ansible does that
+        # can repair the login path it itself depends on.
 
     - name: Authorized key for admin user
       ansible.posix.authorized_key:
@@ -91,12 +103,6 @@
           - docker-compose-plugin
         state: present
         update_cache: true
-
-    - name: Add admin user to docker group
-      ansible.builtin.user:
-        name: "{{ admin_user }}"
-        groups: docker
-        append: true
 
     - name: Docker running and enabled
       ansible.builtin.service:
