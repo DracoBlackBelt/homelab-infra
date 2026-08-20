@@ -1,0 +1,3 @@
+# The VM user is debian, not root -- that comes from tofu's vm_inventory output.
+# Escalation is Ansible's business, so it lives here rather than in the output.
+ansible_become: true

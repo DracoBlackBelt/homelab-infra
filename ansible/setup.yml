@@ -1,13 +1,23 @@
 - name: Base setup
-  hosts: test
+  hosts: vms
   vars:
     admin_user: job
 
   tasks:
+    # SSH answers before cloud-init has finished, and cloud-init's own apt run
+    # holds the dpkg lock while it does. Without this the first task below is a
+    # coin flip on a freshly created VM.
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      register: cloud_init_status
+      changed_when: false
+      failed_when: cloud_init_status.rc not in [0, 2] # 2 is "done, with recoverable errors"
+
     - name: Update and upgrade
       ansible.builtin.apt:
         update_cache: true
         upgrade: dist
+        lock_timeout: 300
 
     - name: Remove unneeded packages
       ansible.builtin.apt:
@@ -23,6 +33,9 @@
           - htop
           - unattended-upgrades
           - sudo
+          # deb822_repository is a python-debian wrapper and fails outright
+          # without this; the cloud image does not ship it.
+          - python3-debian
         state: present
 
     - name: Timezone
@@ -85,15 +98,24 @@
         groups: docker
         append: true
 
+    - name: Docker running and enabled
+      ansible.builtin.service:
+        name: docker
+        enabled: true
+        state: started
+
+    # A drop-in rather than an edit to sshd_config: the stock Debian config
+    # includes sshd_config.d/*.conf on its first line, and sshd keeps the first
+    # value it sees for a keyword. Anything cloud-init leaves in 50-cloud-init
+    # .conf would therefore beat an edit to the main file. 00- sorts ahead of it.
     - name: Harden sshd
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?{{ item.key }}"
-        line: "{{ item.key }} {{ item.value }}"
-        validate: sshd -t -f %s
-      loop:
-        - { key: PermitRootLogin, value: prohibit-password }
-        - { key: PasswordAuthentication, value: "no" }
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        content: |
+          PermitRootLogin prohibit-password
+          PasswordAuthentication no
+        mode: "0644"
+        validate: /usr/sbin/sshd -t -f %s
       notify: restart sshd
 
   handlers:
