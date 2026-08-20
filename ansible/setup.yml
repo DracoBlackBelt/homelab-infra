@@ -49,21 +49,12 @@
       community.general.timezone:
         name: Europe/Amsterdam
 
-    - name: Promote the cloud-init user to admin
-      ansible.builtin.user:
-        name: "{{ admin_user }}"
-        groups:
-          - sudo
-          - docker
-        append: true
-        shell: /bin/bash
-        # cloud-init gives the user /bin/sh; a login-capable shell makes it a
-        # usable admin account, and the docker group keeps `docker` usable
-        # without sudo. The SSH key itself was installed by cloud-init from the
-        # same file this task reads, so the authorized_key task below is a
-        # no-op on healthy VMs -- it only self-heals a template whose key went
-        # stale. It must stay, though: it is the first thing Ansible does that
-        # can repair the login path it itself depends on.
+    # The SSH key itself was installed by cloud-init from the same file this
+    # task reads, so on healthy VMs it is a no-op -- it only self-heals a
+    # template whose key went stale. It must stay: it is the first thing
+    # Ansible does that can repair the login path it itself depends on. (The
+    # user/group membership lives after the Docker install, because the docker
+    # group does not exist until the docker-ce package creates it.)
 
     - name: Authorized key for admin user
       ansible.posix.authorized_key:
@@ -114,6 +105,20 @@
         enabled: true
         state: started
 
+    - name: Promote the cloud-init user to admin
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups:
+          - sudo
+          - docker
+        append: true
+        shell: /bin/bash
+        # cloud-init gives the user /bin/sh; a login-capable shell makes it a
+        # usable admin account, and the docker group keeps `docker` usable
+        # without sudo. Placed after the Docker install on purpose: the
+        # docker group does not exist until the docker-ce package creates it,
+        # and this task fails otherwise.
+
     # --- Dockge: web UI for managing compose stacks (https://dockge.kuma.pet) ---
 
     - name: Create directories for Dockge and its stacks
@@ -136,12 +141,16 @@
     - name: Start Dockge
       community.docker.docker_compose_v2:
         project_name: dockge
-        file_path: /opt/dockge/compose.yaml
-        state: started
+        project_src: /opt/dockge
+        state: present
         remove_orphans: true
-      # The module shells out to the compose v2 plugin (already installed) and
-      # diffs the live stack, so re-runs are no-ops until compose.yaml or the
-      # containers actually change. Dockge listens on port 5001.
+      # project_src is a *directory*: the module runs compose from it, which is
+      # exactly what `cd /opt/dockge && docker compose up -d` does, and keeps
+      # the compose file's relative ./data volume resolving inside /opt/dockge.
+      # (The alternative, `definition`, materialises the file in a temp dir,
+      # which would break that relative path.) The module diffs the live stack,
+      # so re-runs are no-ops until the file or the containers change. Dockge
+      # listens on port 5001.
 
     # A drop-in rather than an edit to sshd_config: the stock Debian config
     # includes sshd_config.d/*.conf on its first line, and sshd keeps the first
