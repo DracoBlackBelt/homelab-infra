@@ -5,13 +5,14 @@ variable "vms" {
     vm_id     = number
     name      = string
     address   = string
-    cores     = optional(number, 2)
-    memory    = optional(number, 2048)
+    cores     = optional(number, 1)
+    memory    = optional(number, 1024)
     disk_size = optional(number, 8)
   }))
 
   default = {
     vm01 = { vm_id = 211, name = "test-vm01", address = "10.0.0.41/24" }
+    vm02 = { vm_id = 212, name = "test-vm02", address = "10.0.0.42/24" }
   }
 }
 
