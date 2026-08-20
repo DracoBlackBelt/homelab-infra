@@ -39,6 +39,10 @@
           # deb822_repository is a python-debian wrapper and fails outright
           # without this; the cloud image does not ship it.
           - python3-debian
+          # community.docker modules (docker_compose_v2 below) drive the Docker
+          # API through the Python SDK. The distro package exists, which avoids
+          # pip and Debian 13's externally-managed-environment restriction.
+          - python3-docker
         state: present
 
     - name: Timezone
@@ -109,6 +113,35 @@
         name: docker
         enabled: true
         state: started
+
+    # --- Dockge: web UI for managing compose stacks (https://dockge.kuma.pet) ---
+
+    - name: Create directories for Dockge and its stacks
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /opt/dockge
+        - /opt/stacks
+
+    - name: Download the Dockge compose file
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/louislam/dockge/master/compose.yaml
+        dest: /opt/dockge/compose.yaml
+        mode: "0644"
+      # Re-downloaded every run, but get_url only reports changed when the
+      # bytes differ -- idempotent, while still tracking the upstream file.
+
+    - name: Start Dockge
+      community.docker.docker_compose_v2:
+        project_name: dockge
+        file_path: /opt/dockge/compose.yaml
+        state: started
+        remove_orphans: true
+      # The module shells out to the compose v2 plugin (already installed) and
+      # diffs the live stack, so re-runs are no-ops until compose.yaml or the
+      # containers actually change. Dockge listens on port 5001.
 
     # A drop-in rather than an edit to sshd_config: the stock Debian config
     # includes sshd_config.d/*.conf on its first line, and sshd keeps the first
