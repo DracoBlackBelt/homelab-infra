@@ -1,0 +1,28 @@
+#####################################
+# 🦎 KOMODO PERIPHERY CONFIG 🦎 #
+# Managed by Ansible (ansible/komodo.yml) -- local edits are overwritten.
+#####################################
+
+## Root directory for Periphery-managed resources (stacks, repos, keys).
+root_directory = "{{ komodo_root_directory }}"
+
+## Outbound mode: this agent dials Core over the tailnet; Core never needs to
+## reach this host, and the inbound server on port 8120 stays disabled.
+## Env: PERIPHERY_CORE_ADDRESS
+core_address = "{{ komodo_core_address }}"
+
+## The Komodo Server this agent connects as -- the inventory hostname, which
+## tailscale.yml also set as the tailnet hostname.
+## Env: PERIPHERY_CONNECT_AS
+connect_as = "{{ inventory_hostname }}"
+
+## Reusable Server Onboarding Key (Komodo UI -> Servers -> Onboarding Keys).
+## Only consumed while the Server does not exist in Core yet; afterwards
+## authentication uses the auto-generated keypair in {{ komodo_root_directory }}/keys/.
+## Env: PERIPHERY_ONBOARDING_KEY
+onboarding_key = "{{ komodo_onboarding_key }}"
+
+## Terminals and container exec are enabled by default (remote shell via the
+## Komodo UI). Set these to true to disable:
+# disable_terminals = false
+# disable_container_terminals = false

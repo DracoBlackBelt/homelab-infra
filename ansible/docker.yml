@@ -1,0 +1,61 @@
+# Install Docker Engine + Compose plugin from Docker's official apt repo.
+#
+# Komodo Periphery acts on the *host* Docker daemon (it runs as a root systemd
+# service, see komodo.yml), so any VM that should host containers needs this
+# before Core can deploy stacks to it.
+#
+# Usage:
+#   cd ansible && ansible-playbook docker.yml
+#   cd ansible && ansible-playbook docker.yml --limit test-vm01
+- name: Install Docker Engine
+  hosts: vms
+  gather_facts: true
+
+  vars:
+    docker_repo_url: "https://download.docker.com/linux/debian"
+    docker_codename: "{{ ansible_facts['distribution_release'] }}"
+
+  tasks:
+    - name: Add the Docker apt repository
+      ansible.builtin.deb822_repository:
+        name: docker-ce
+        types: [deb]
+        uris: "{{ docker_repo_url }}/"
+        suites: "{{ docker_codename }}"
+        components: [stable]
+        # Armored keyring fetched to /etc/apt/keyrings/docker-ce.asc
+        signed_by: "{{ docker_repo_url }}/gpg"
+        state: present
+      tags: install
+
+    - name: Install the Docker Engine packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        # Same rationale as tailscale.yml: deb822_repository does not refresh
+        # the cache, so a stale cache could hide the just-added repo.
+        update_cache: true
+      tags: install
+
+    - name: Ensure docker is enabled and running
+      ansible.builtin.systemd_service:
+        name: docker
+        state: started
+        enabled: true
+      tags: install
+
+    - name: Show installed Docker version
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+      tags: install
+
+    - name: Report Docker version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ docker_version.stdout }}"
+      tags: install

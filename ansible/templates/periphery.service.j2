@@ -1,0 +1,15 @@
+[Unit]
+Description=Komodo Periphery agent
+Documentation=https://komo.do/docs/setup/connect-servers
+# Outbound mode dials Core over the tailnet, so wait for tailscaled (MagicDNS)
+# and general connectivity before starting.
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/periphery --config-path {{ komodo_root_directory }}/periphery.config.toml
+Restart=on-failure
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+# Full provisioning chain for every VM, in dependency order:
+#   1. tailscale.yml -- join the tailnet (the Komodo Core address is
+#      tailnet-only, so everything below needs this first)
+#   2. docker.yml    -- Docker Engine, which Periphery acts on
+#   3. komodo.yml    -- periphery agent, which dials Core and self-onboards
+#
+# Each playbook can also be run standalone. Usage:
+#   cd ansible && ansible-playbook site.yml
+#   cd ansible && ansible-playbook site.yml --limit test-vm01
+- import_playbook: tailscale.yml
+- import_playbook: docker.yml
+- import_playbook: komodo.yml

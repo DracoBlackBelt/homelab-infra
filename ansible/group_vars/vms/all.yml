@@ -1,3 +1,8 @@
 # The VM user is debian, not root -- that comes from tofu's vm_inventory output.
 # Escalation is Ansible's business, so it lives here rather than in the output.
 ansible_become: true
+
+# Komodo Core address the periphery agents dial (outbound mode, komodo.yml).
+# MagicDNS/ts.net name of the core host on the tailnet; the ts.net cert is
+# valid, so no TLS exceptions are needed on the agents.
+komodo_core_address: "https://pbs.tail9ef5e7.ts.net"

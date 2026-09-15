@@ -1,0 +1,126 @@
+# Install the Komodo Periphery agent (systemd, outbound mode) on every VM.
+#
+# The agent DIALS Komodo Core over the tailnet -- Core never needs to reach
+# these hosts -- so this playbook must run AFTER tailscale.yml (see site.yml)
+# and the core address in group_vars/vms/all.yml must be a MagicDNS/ts.net
+# name. With core_address set, periphery's inbound server (port 8120) stays
+# disabled; no passkeys, no SSL certs, nothing to open.
+#
+# Authentication is a keypair auto-generated under /etc/komodo/keys/ on first
+# dial. The vaulted komodo_onboarding_key (group_vars/vms/vault.yml) is what
+# lets a never-before-seen agent create its Server in Core: create ONE
+# reusable onboarding key in the Komodo UI (Servers -> Onboarding Keys) and
+# every current and future VM self-onboards as a Server named after its
+# inventory hostname -- which tailscale.yml sets as the tailnet hostname too.
+#
+# Version updates: bump komodo_version + the release checksums below, rerun.
+#
+# Usage:
+#   cd ansible && ansible-playbook komodo.yml
+#   cd ansible && ansible-playbook komodo.yml --limit test-vm01
+- name: Install and connect Komodo Periphery
+  hosts: vms
+  gather_facts: true
+
+  vars:
+    komodo_version: "v2.3.3"
+    komodo_root_directory: "/etc/komodo"
+    # sha256 of the periphery-<arch> release assets for komodo_version,
+    # from https://github.com/moghtech/komodo/releases
+    komodo_release_checksums:
+      x86_64: "40b78f377626799afad8331246a501f077d4ebcfb6d9096894cf55b64f6dcf13"
+      aarch64: "60334780d7115ddc7a35fad062f4c606a4c814ae9a7dd8710ca96a0c1a37d85c"
+
+  handlers:
+    - name: Restart periphery
+      ansible.builtin.systemd_service:
+        name: periphery
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    - name: Verify the Core address and a real onboarding key are configured
+      ansible.builtin.assert:
+        that:
+          - komodo_core_address is not search('REPLACE-ME')
+          - komodo_onboarding_key is not search('REPLACE-ME')
+          - komodo_onboarding_key | length > 0
+        quiet: true
+        fail_msg: >-
+          Set komodo_core_address in group_vars/vms/all.yml and the onboarding
+          key with: cd ansible && ansible-vault edit group_vars/vms/vault.yml
+
+    - name: Confirm a release asset exists for this architecture
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in komodo_release_checksums
+        quiet: true
+        fail_msg: "No periphery binary pinned for {{ ansible_facts['architecture'] }}"
+
+    - name: Download the Periphery binary
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/moghtech/komodo/releases/download/{{ komodo_version }}/periphery-{{ ansible_facts['architecture'] }}
+        dest: /usr/local/bin/periphery
+        mode: "0755"
+        owner: root
+        group: root
+        checksum: "sha256:{{ komodo_release_checksums[ansible_facts['architecture']] }}"
+      notify: Restart periphery
+
+    - name: Create the Periphery root directory
+      ansible.builtin.file:
+        path: "{{ komodo_root_directory }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Create the key directory (periphery generates its keypair here)
+      ansible.builtin.file:
+        path: "{{ komodo_root_directory }}/keys"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Render the Periphery config
+      # no_log: the file embeds the onboarding key.
+      ansible.builtin.template:
+        src: periphery.config.toml.j2
+        dest: "{{ komodo_root_directory }}/periphery.config.toml"
+        mode: "0600"
+        owner: root
+        group: root
+      no_log: true
+      notify: Restart periphery
+
+    - name: Install the periphery systemd unit
+      ansible.builtin.template:
+        src: periphery.service.j2
+        dest: /etc/systemd/system/periphery.service
+        mode: "0644"
+        owner: root
+        group: root
+      notify: Restart periphery
+
+    - name: Enable and start periphery
+      ansible.builtin.systemd_service:
+        name: periphery
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Wait for the agent to settle, then check it is active
+      ansible.builtin.command: systemctl is-active periphery
+      register: periphery_active
+      until: periphery_active.stdout | trim == 'active'
+      retries: 6
+      delay: 5
+      changed_when: false
+
+    - name: Show connection identity
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} runs periphery {{ komodo_version }} ({{ periphery_active.stdout | trim }}),
+          connecting as '{{ inventory_hostname }}' to {{ komodo_core_address }} --
+          confirm the Server shows Ok in the Komodo UI.

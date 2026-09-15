@@ -26,7 +26,10 @@ cd ansible && ansible-galaxy collection install -r requirements.yml   # one-time
 cd ansible && ansible-inventory --graph                               # what tofu exposes
 cd ansible && ansible-playbook ping.yml                               # smoke-test the chain
 cd ansible && ansible-playbook ping.yml --limit <vm-name>
+cd ansible && ansible-playbook site.yml                               # tailscale -> docker -> komodo, in order
 cd ansible && ansible-playbook tailscale.yml                          # install + join tailnet
+cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
+cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
 ```
 
 Secrets live in vault-encrypted files under `group_vars/` (e.g. `vms/vault.yml`);
@@ -76,7 +79,8 @@ The chain is only visible across files:
   `ansible_become: true` — Ansible connects as `debian` (sourced once from
   `local.vm_username` in `tofu/locals.tf` and exported via `vm_inventory`) and escalates;
   escalation is deliberately an Ansible concern, not part of the tofu output.
-  `vault.yml` (ansible-vault encrypted) holds `tailscale_auth_key` used by `tailscale.yml`.
+  `vault.yml` (ansible-vault encrypted) holds `tailscale_auth_key` (`tailscale.yml`)
+  and `komodo_onboarding_key` (`komodo.yml`); `all.yml` also pins `komodo_core_address`.
 - **`ansible/tailscale.yml`** installs the package from Tailscale's official apt repo
   (`deb822_repository`, key fetched from `pkgs.tailscale.com`) and registers each VM with
   one reusable+ephemeral auth key. The CLI does not read `TS_AUTHKEY` (that's
@@ -86,6 +90,20 @@ The chain is only visible across files:
   Tailscale SSH is enabled (`--ssh`). Auth keys expire after at most 90 days — swap in a
   fresh one with `ansible-vault edit group_vars/vms/vault.yml`; ephemeral nodes GC'd after
   long shutdowns re-register with the same key.
+- **`ansible/docker.yml`** installs Docker Engine + compose/buildx plugins from Docker's
+  official apt repo (same `deb822_repository` pattern). Periphery acts on this host daemon,
+  so it is a prerequisite for Komodo managing containers/stacks on a VM.
+- **`ansible/komodo.yml`** installs the Komodo Periphery agent as a root systemd service
+  (`komodo.yml` owns binary, unit, and config; template at `templates/periphery.config.toml.j2`).
+  **Outbound mode:** the agent dials `komodo_core_address` (a ts.net/MagicDNS name in
+  `vms/all.yml`, hence the tailscale-then-komodo order in `site.yml`); Core never needs to
+  reach VMs, port 8120 stays closed. Each VM self-onboards into Core as a Server named
+  `{{ inventory_hostname }}` (== the tailscale hostname) using one reusable onboarding key
+  from `vms/vault.yml` — create it in the Komodo UI (Servers → Onboarding Keys). The key is
+  only consumed until the Server exists; steady-state auth is the keypair Periphery
+  auto-generates in `/etc/komodo/keys/`. The pinned `komodo_version` and
+  `komodo_release_checksums` in the play must change **together** (checksums are from the
+  release page; `get_url` fails the check otherwise).
 
 ## Verified facts (baseline check, 2026-09-15)
 
