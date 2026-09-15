@@ -17,7 +17,7 @@
 #
 # Usage:
 #   cd ansible && ansible-playbook komodo.yml
-#   cd ansible && ansible-playbook komodo.yml --limit test-vm01
+#   cd ansible && ansible-playbook komodo.yml --limit komodo-srv-01
 - name: Install and connect Komodo Periphery
   hosts: vms
   gather_facts: true

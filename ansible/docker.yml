@@ -6,7 +6,7 @@
 #
 # Usage:
 #   cd ansible && ansible-playbook docker.yml
-#   cd ansible && ansible-playbook docker.yml --limit test-vm01
+#   cd ansible && ansible-playbook docker.yml --limit komodo-srv-01
 - name: Install Docker Engine
   hosts: vms
   gather_facts: true

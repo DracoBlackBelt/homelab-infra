@@ -15,5 +15,5 @@ description = "Docker Swarm on the homelab-infra VMs (3 managers)"
 tags = ["swarm"]
 
 [swarm.config]
-servers = ["test-vm01", "test-vm02", "test-vm03"]
+servers = ["komodo-srv-01", "komodo-srv-02", "komodo-srv-03"]
 send_unhealthy_alerts = true

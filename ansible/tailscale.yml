@@ -19,7 +19,7 @@
 # Usage:
 #   cd ansible && ansible-playbook tailscale.yml
 #   cd ansible && ansible-playbook tailscale.yml --tags install   # package only
-#   cd ansible && ansible-playbook tailscale.yml --limit test-vm01
+#   cd ansible && ansible-playbook tailscale.yml --limit komodo-srv-01
 - name: Install and register Tailscale
   hosts: vms
   gather_facts: true

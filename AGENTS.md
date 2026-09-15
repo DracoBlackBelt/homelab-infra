@@ -107,7 +107,7 @@ The chain is only visible across files:
   official apt repo (same `deb822_repository` pattern). Periphery acts on this host daemon,
   so it is a prerequisite for Komodo managing containers/stacks on a VM.
 - **`ansible/swarm.yml`** converges the Docker Swarm: probes each node's
-  `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (test-vm01) if inactive,
+  `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (komodo-srv-01) if inactive,
   then joins every other node with the **manager** token (fetched `no_log`) — all nodes are
   managers, so 3 nodes = raft quorum that survives one loss. Advertise/join on the LAN
   addresses (vmbr0), never the tailnet. It never inits over, re-joins, or `swarm leave`s
@@ -144,7 +144,7 @@ The chain is only visible across files:
 - Template 9000 exists, is sealed, 16 GiB disk.
 - Komodo Core runs on the `pbs` tailnet node at `https://pbs.tail9ef5e7.ts.net`
   (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
-- Live swarm `homelab`: 3 managers (test-vm01..03) formed by `swarm.yml`; ingress
+- Live swarm `homelab`: 3 managers (komodo-srv-01..03) formed by `swarm.yml`; ingress
   overlay migrated to 10.10.0.0/24; canary stack `whoami` publishes :8080 on all nodes.
 - Toolchain: OpenTofu v1.12.6, provider `bpg/proxmox` 0.113.1, ansible-core 2.21.4
   (Homebrew ansible 14.4.0), Python 3.14.
