@@ -110,6 +110,11 @@
         enabled: true
         daemon_reload: true
 
+    # Run the restart handler now so the active-check below validates the
+    # final binary/config/service, not the pre-change process.
+    - name: Apply pending restarts before verifying
+      ansible.builtin.meta: flush_handlers
+
     - name: Wait for the agent to settle, then check it is active
       ansible.builtin.command: systemctl is-active periphery
       register: periphery_active

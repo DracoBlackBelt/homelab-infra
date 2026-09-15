@@ -3,9 +3,10 @@
 IaC for a homelab: on a Proxmox VE host (node `prox`), OpenTofu creates Debian 13 VMs
 cloned from a hand-built golden template, and Ansible configures those VMs over SSH.
 
-The repo is at a deliberately-empty baseline (reset 2026-09-15): the connection plumbing
-is proven against the live host, but no VMs or guest config are managed. `var.vms`
-defaults to `{}`; VMs are declared only in the gitignored `tofu/terraform.tfvars`.
+The connection plumbing is proven against the live host, and the guest-config chain
+(tailscale -> docker -> komodo periphery, `ansible/site.yml`) is defined here, but no VM
+*instances* live in git: `var.vms` defaults to `{}`; VMs are declared only in the
+gitignored `tofu/terraform.tfvars`.
 
 ## Commands
 
@@ -36,14 +37,16 @@ Secrets live in vault-encrypted files under `group_vars/` (e.g. `vms/vault.yml`)
 `ansible.cfg` reads the password from `../.vault-pass` (gitignored) — create it once per machine.
 
 There is no lint or unit-test suite; `ansible/ping.yml` is the closest thing to a test.
-`requirements.yml` is the contract for collection deps — don't rely on whatever
-Homebrew's ansible package happens to bundle.
+`requirements.yml` is the install contract for collection deps — currently empty:
+the plays use only `ansible.builtin` modules and need **ansible-core >= 2.21** for the
+`deb822_repository`/`systemd_service` names, so don't rely on whatever Homebrew's
+ansible package happens to bundle.
 
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
-`address`, optional `cores`/`memory`/`disk_size`), then `tofu -chdir=tofu apply`. Ansible
-picks it up automatically on its next run — nothing else to update. `disk_size` must be
->= 16: the template's volume is 16 GiB and a cloned disk cannot shrink (smaller values
-fail at apply).
+`address`, optional `cores`/`memory`/`disk_size`), then `tofu -chdir=tofu apply` followed
+by `cd ansible && ansible-playbook site.yml --limit <name>`. The dynamic inventory picks
+the VM up automatically — nothing else to update. `disk_size` must be >= 16: the
+template's volume is 16 GiB and a cloned disk cannot shrink (smaller values fail at apply).
 
 ## Architecture
 
@@ -110,6 +113,8 @@ The chain is only visible across files:
 - PVE 9.2.18 at `https://prox.int.huisman.dev`; API token auth works; TLS cert is valid
   (no `insecure` flag needed).
 - Template 9000 exists, is sealed, 16 GiB disk.
+- Komodo Core runs on the `pbs` tailnet node at `https://pbs.tail9ef5e7.ts.net`
+  (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
 - Toolchain: OpenTofu v1.12.6, provider `bpg/proxmox` 0.113.1, ansible-core 2.21.4
   (Homebrew ansible 14.4.0), Python 3.14.
 - `tofu plan` with empty `var.vms` is clean; dynamic inventory degrades gracefully to an

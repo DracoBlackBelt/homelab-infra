@@ -3,17 +3,20 @@
 IaC for my homelab: OpenTofu clones Debian 13 VMs on Proxmox VE (node `prox`)
 from a hand-built golden template, and Ansible configures those VMs over SSH.
 
-## Baseline state
+## State
 
-This repo is reset to a working baseline: the *plumbing* is proven, but no VMs
-or config is managed yet.
+The *plumbing* is proven against the live host: connection to Proxmox (endpoint +
+API token), the sealed golden template (vmid 9000), the cloud-init SSH key path,
+the tofu→Ansible inventory bridge, provider pinned to `~> 0.113.1`. On top of it
+sits the guest-config chain: `ansible/site.yml` joins each VM to the tailnet,
+installs Docker Engine, and connects a Komodo Periphery agent back to Komodo Core
+(outbound only — Core never needs to reach the VMs).
 
-- **Working**: connection to Proxmox (endpoint + API token), the sealed golden
-  template (vmid 9000), the cloud-init SSH key path, the tofu→Ansible inventory
-  bridge, provider pinned to `~> 0.113.1`.
-- **Empty**: `var.vms` defaults to `{}` (zero resources); the previous
-  Docker/Dockge/Watchtower `setup.yml` playbook lives in git history only
-  (`git show bafa092:ansible/setup.yml`).
+The *instances* are not in git: `var.vms` defaults to `{}` and real VMs are
+declared only in the gitignored `tofu/terraform.tfvars`. The old all-in-one
+Docker/Dockge/Watchtower `setup.yml` lives in git history only
+(`git show bafa092:ansible/setup.yml`); its parts were rebuilt deliberately as
+separate plays.
 
 ## Layout
 
@@ -25,12 +28,16 @@ or config is managed yet.
 | `docs/golden-template.md`     | spec for building/sealing template vmid 9000         |
 | `ansible/inventory/tofu.py`   | dynamic inventory: reads `tofu output -json`         |
 | `ansible/ping.yml`            | smoke test for the full chain                        |
+| `ansible/site.yml`            | provisioning chain: tailscale → docker → komodo      |
+| `ansible/{tailscale,docker,komodo}.yml` | the three links, each also runnable standalone |
+| `ansible/group_vars/vms/`     | group vars, incl. vault-encrypted keys               |
+| `ansible/templates/`          | periphery config + systemd unit (rendered by komodo.yml) |
 
 ## Usage
 
 ```sh
 tofu -chdir=tofu init          # once
-tofu -chdir=tofu plan          # "No changes" on an empty baseline
+tofu -chdir=tofu plan          # "No changes" when var.vms is empty
 
 # 1. add an entry to the `vms` map in tofu/terraform.tfvars
 # 2. clone it:
@@ -40,6 +47,9 @@ tofu -chdir=tofu apply         # waits for the guest agent to report the VM's IP
 cd ansible
 ansible-galaxy collection install -r requirements.yml
 ansible-playbook ping.yml
+
+# 4. provision it (tailnet -> Docker -> Komodo periphery):
+ansible-playbook site.yml --limit <vm-name>
 ```
 
 Adding a VM is a one-line change in `terraform.tfvars`; the dynamic inventory
@@ -51,5 +61,6 @@ picks it up automatically on the next play.
   a cloned volume).
 - After sealing, template 9000 is never booted again — to change its contents,
   destroy and rebuild it per `docs/golden-template.md`.
-- The old provisioning playbook is history, not gospel: rebuild guest config
-  as you need it (new plays, roles, or something like Dockge) deliberately.
+- Guest config is rebuilt deliberately, as one small play per concern
+  (tailscale.yml, docker.yml, komodo.yml). Extend it the same way — new plays,
+  roles, or something like Dockge — rather than resurrecting `setup.yml`.

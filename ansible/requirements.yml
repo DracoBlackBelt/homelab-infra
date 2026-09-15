@@ -1,12 +1,9 @@
-# Collections used by the plays in this directory. Install with:
-#   ansible-galaxy collection install -r requirements.yml
-# (Homebrew's ansible package ships recent versions, but do not rely on that
-# for reproducibility -- this file is the contract.)
+# No Galaxy collections are currently required: every module used by the plays
+# is ansible.builtin. The real dependency is ansible-core >= 2.21 -- the plays
+# use ansible.builtin.deb822_repository and ansible.builtin.systemd_service,
+# which do not exist under those names on older cores.
+#
+# Add entries here the day a play reaches for a Galaxy collection; this file is
+# the install contract (ansible-galaxy collection install -r requirements.yml).
 ---
-collections:
-  - name: ansible.posix
-    version: ">=2.0.0"
-  - name: community.general
-    version: ">=10.0.0"
-  - name: community.docker
-    version: ">=4.0.0"
+collections: []
