@@ -6,3 +6,8 @@ ansible_become: true
 # MagicDNS/ts.net name of the core host on the tailnet; the ts.net cert is
 # valid, so no TLS exceptions are needed on the agents.
 komodo_core_address: "https://pbs.tail9ef5e7.ts.net"
+
+# Docker Swarm bootstrap manager and join point (swarm.yml); all vms group
+# members join it as managers. Repoint this at a survivor only if this node
+# dies for real -- see the header of swarm.yml.
+swarm_init_manager: test-vm01

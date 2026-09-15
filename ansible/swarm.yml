@@ -1,0 +1,161 @@
+# Converge a Docker Swarm across the VMs, with every node a manager.
+#
+# Why this lives in Ansible and not Komodo: Komodo's Swarm resource only
+# *points at* manager Servers it should talk to -- it deliberately does not
+# run `docker swarm init` or the joins for you (its Join button just prints
+# the command). So cluster membership is provisioned here; the Swarm resource
+# (komodo/swarms.toml) then just observes and deploys onto it.
+#
+# Topology: all vms group members are Swarm MANAGERS (3 nodes = raft quorum
+# that survives losing one). `swarm_init_manager` (group_vars/vms/all.yml) is
+# the bootstrap leader and the join point; every node advertises on its LAN
+# address (vmbr0), not the tailnet -- ports 2377/7946/4780 stay on-LAN.
+#
+# If the init manager dies for real: demote/remove it from another manager
+# (`docker node rm -f <host>`), point `swarm_init_manager` at a survivor, and
+# re-run. Surviving nodes need nothing -- they keep cluster state.
+#
+# Two Debian+swarm ingress traps, both handled below: the openvswitch kernel
+# module is never loaded (breaks published ports), and swarm's default
+# ingress subnet 10.0.0.0/24 collides with this LAN (blackholes routing-mesh
+# replies) -- fresh clusters dodge it via --default-addr-pool, the live
+# cluster was migrated to 10.10.0.0/24 by hand on 2026-09-15.
+#
+# Idempotent: nodes already in a swarm are never re-inited, re-joined, or
+# left. A node stuck in `pending` aborts the play rather than being forced.
+#
+# Usage: cd ansible && ansible-playbook swarm.yml
+- name: Form the Docker Swarm
+  hosts: vms
+  gather_facts: false
+
+  handlers:
+    - name: Restart docker for ingress datapath
+      ansible.builtin.systemd_service:
+        name: docker
+        state: restarted
+
+  tasks:
+    - name: Check loaded kernel modules
+      ansible.builtin.command: lsmod
+      register: lsmod
+      changed_when: false
+
+    # Docker Swarm ingress (published ports -> service VIP) is an OVS
+    # datapath; Debian ships the openvswitch module but never loads it.
+    # Without it, stacks deploy and localhost works, but LAN ingress to
+    # the VIP silently times out. Restarting dockerd re-programs the
+    # datapath for existing services.
+    - name: Load openvswitch (swarm ingress datapath)
+      ansible.builtin.command: modprobe openvswitch
+      when: "'openvswitch' not in lsmod.stdout"
+      notify: Restart docker for ingress datapath
+
+    - name: Load openvswitch at boot too
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/openvswitch.conf
+        content: "openvswitch\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Read current swarm state
+      ansible.builtin.command: >-
+        docker info --format
+        '{% raw %}{{ .Swarm.LocalNodeState }}{% endraw %}'
+      register: swarm_state
+      changed_when: false
+
+    - name: Fail if any node is stuck in pending
+      ansible.builtin.assert:
+        that: swarm_state.stdout != 'pending'
+        fail_msg: >-
+          {{ inventory_hostname }} is 'pending' (told to join but hasn't
+          checked in) -- fix the network or `docker swarm leave --force` by
+          hand, then re-run. Refusing to touch it.
+
+    - name: Initialize the swarm on the bootstrap manager
+      ansible.builtin.command: >-
+        docker swarm init --advertise-addr {{ ansible_host }}
+        --default-addr-pool 10.10.0.0/16 --default-addr-pool-mask-length 24
+      when:
+        - inventory_hostname == swarm_init_manager
+        - swarm_state.stdout == 'inactive'
+
+    - name: Fetch the manager join token
+      ansible.builtin.command: docker swarm join-token -q manager
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: join_token
+      changed_when: false
+      no_log: true
+
+    - name: Join the swarm as a manager
+      ansible.builtin.command: >-
+        docker swarm join --token {{ join_token.stdout | trim }}
+        {{ hostvars[swarm_init_manager].ansible_host }}:2377
+      when:
+        - inventory_hostname != swarm_init_manager
+        - swarm_state.stdout == 'inactive'
+      no_log: true
+
+    # Tripwire: swarm's stock ingress subnet is 10.0.0.0/24, which collides
+    # with this LAN (10.0.0.0/24) and silently blackholes routing-mesh
+    # replies. A fresh `swarm init` above avoids it via --default-addr-pool;
+    # the live cluster was migrated by hand (see header).
+    - name: Read the ingress overlay subnet
+      ansible.builtin.command: >-
+        docker network inspect ingress
+        --format '{% raw %}{{ (index .IPAM.Config 0).Subnet }}{% endraw %}'
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: ingress_net
+      changed_when: false
+
+    - name: Assert ingress does not collide with the LAN
+      ansible.builtin.assert:
+        that: >-
+          (ingress_net.stdout | regex_replace('\\.[0-9]+/.*$', ''))
+          != (hostvars[swarm_init_manager].ansible_host | regex_replace('\\.[0-9]+$', ''))
+        fail_msg: >-
+          Ingress overlay runs on {{ ingress_net.stdout }} -- same /24 as the
+          LAN. Recreate it: remove stacks, `yes | docker network rm ingress`,
+          then `docker network create --ingress --driver overlay --subnet
+          10.10.0.0/24 --gateway 10.10.0.1 ingress`.
+      run_once: true
+
+    - name: List swarm nodes
+      ansible.builtin.command: >-
+        docker node ls --format
+        '{% raw %}{{json .}}{% endraw %}'
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: nodes
+      changed_when: false
+
+    - name: Collect Ready+Active managers
+      ansible.builtin.set_fact:
+        swarm_managers: >-
+          {{ nodes.stdout_lines | map('from_json') | list
+             | selectattr('Status', 'equalto', 'Ready')
+             | selectattr('Availability', 'equalto', 'Active')
+             | selectattr('ManagerStatus', 'defined')
+             | rejectattr('ManagerStatus', 'equalto', 'Unavailable')
+             | map(attribute='Hostname') | list }}
+      run_once: true
+
+    - name: Assert every node is a working manager
+      ansible.builtin.assert:
+        that: swarm_managers | length == groups['vms'] | length
+        fail_msg: >-
+          Only {{ swarm_managers }} are Ready managers, want
+          {{ groups['vms'] | length }} -- run `docker node ls` on
+          {{ swarm_init_manager }} to see who isn't.
+      run_once: true
+
+    - name: Swarm status
+      ansible.builtin.debug:
+        msg: >-
+          Swarm on {{ swarm_init_manager }} ({{ hostvars[swarm_init_manager].ansible_host }}:2377)
+          has {{ swarm_managers | length }} Ready managers: {{ swarm_managers | join(', ') }}.
+          Next: create the ResourceSync over komodo/ so the Swarm resource appears in Core.
