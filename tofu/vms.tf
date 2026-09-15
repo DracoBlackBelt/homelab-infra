@@ -1,5 +1,11 @@
-# VMs cloned from the golden template looked up in templates.tf. Add an entry to
-# create one. cores/memory/disk_size are optional -- omit them for the defaults.
+# VMs cloned from the golden template looked up in templates.tf. The map is
+# empty on purpose: real VMs are declared in terraform.tfvars (gitignored),
+# so this file is the schema, not the inventory.
+# cores/memory/disk_size are optional -- omit them for the defaults.
+# disk_size must be >= the template's disk size (16 GiB as of the current
+# build, docs/golden-template.md): a clone inherits the template volume and
+# Proxmox can only grow a disk, never shrink it, so a smaller value fails at
+# apply time.
 variable "vms" {
   type = map(object({
     vm_id     = number
@@ -7,13 +13,10 @@ variable "vms" {
     address   = string
     cores     = optional(number, 1)
     memory    = optional(number, 1024)
-    disk_size = optional(number, 8)
+    disk_size = optional(number, 16)
   }))
 
-  default = {
-    vm01 = { vm_id = 211, name = "test-vm01", address = "10.0.0.41/24" }
-    vm02 = { vm_id = 212, name = "test-vm02", address = "10.0.0.42/24" }
-  }
+  default = {}
 }
 
 resource "proxmox_virtual_environment_vm" "vms" {
@@ -115,8 +118,8 @@ resource "proxmox_virtual_environment_vm" "vms" {
 }
 
 # Read by ansible/inventory/tofu.py, which is Ansible's only inventory: add a VM
-# to the map above and Ansible picks it up on the next run, with nothing to keep
-# in sync by hand.
+# in terraform.tfvars, apply, and Ansible picks it up on the next run, with
+# nothing to keep in sync by hand.
 #
 # The addresses come from the config rather than from the agent's report. They
 # are what cloud-init was told to set, so they are known before the VM boots and

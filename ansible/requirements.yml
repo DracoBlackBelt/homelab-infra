@@ -1,0 +1,12 @@
+# Collections used by the plays in this directory. Install with:
+#   ansible-galaxy collection install -r requirements.yml
+# (Homebrew's ansible package ships recent versions, but do not rely on that
+# for reproducibility -- this file is the contract.)
+---
+collections:
+  - name: ansible.posix
+    version: ">=2.0.0"
+  - name: community.general
+    version: ">=10.0.0"
+  - name: community.docker
+    version: ">=4.0.0"

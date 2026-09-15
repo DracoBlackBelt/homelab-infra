@@ -1,0 +1,19 @@
+# Baseline smoke test: proves the whole chain works -- tofu state -> the
+# inventory/tofu.py dynamic inventory -> SSH -> privilege escalation.
+# Run after declaring VMs in tofu/terraform.tfvars and applying:
+#   cd ansible && ansible-playbook ping.yml
+# With no VMs in state it reports "no hosts matched", which is the expected
+# baseline behaviour, not an error.
+- name: Ping all VMs
+  hosts: vms
+  gather_facts: false
+
+  tasks:
+    - name: Echo a greeting
+      ansible.builtin.command: hostnamectl --static status
+      register: hostinfo
+      changed_when: false
+
+    - name: Show result
+      ansible.builtin.debug:
+        msg: "{{ hostinfo.stdout_lines | default([]) }}"
