@@ -4,9 +4,10 @@ IaC for a homelab: on a Proxmox VE host (node `prox`), OpenTofu creates Debian 1
 cloned from a hand-built golden template, and Ansible configures those VMs over SSH.
 
 The connection plumbing is proven against the live host, and the guest-config chain
-(tailscale -> docker -> komodo periphery, `ansible/site.yml`) is defined here, but no VM
-*instances* live in git: `var.vms` defaults to `{}`; VMs are declared only in the
-gitignored `tofu/terraform.tfvars`.
+(tailscale -> docker -> swarm -> komodo periphery, `ansible/site.yml`) is defined here,
+along with the Komodo resources themselves (`komodo/*.toml`, synced from git by a
+ResourceSync). No VM *instances* live in git, though: `var.vms` defaults to `{}`; VMs
+are declared only in the gitignored `tofu/terraform.tfvars`.
 
 ## Commands
 
@@ -27,9 +28,10 @@ cd ansible && ansible-galaxy collection install -r requirements.yml   # one-time
 cd ansible && ansible-inventory --graph                               # what tofu exposes
 cd ansible && ansible-playbook ping.yml                               # smoke-test the chain
 cd ansible && ansible-playbook ping.yml --limit <vm-name>
-cd ansible && ansible-playbook site.yml                               # tailscale -> docker -> komodo, in order
+cd ansible && ansible-playbook site.yml                               # tailscale -> docker -> swarm -> komodo, in order
 cd ansible && ansible-playbook tailscale.yml                          # install + join tailnet
 cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
+cd ansible && ansible-playbook swarm.yml                              # converge the swarm (all managers)
 cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
 ```
 
@@ -45,7 +47,9 @@ ansible package happens to bundle.
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
 `address`, optional `cores`/`memory`/`disk_size`), then `tofu -chdir=tofu apply` followed
 by `cd ansible && ansible-playbook site.yml --limit <name>`. The dynamic inventory picks
-the VM up automatically — nothing else to update. `disk_size` must be >= 16: the
+the VM up automatically — nothing else to update; `site.yml` even joins it to the swarm
+as a new manager (add its name to `komodo/swarms.toml` `servers` only for read-path
+redundancy in Core). `disk_size` must be >= 16: the
 template's volume is 16 GiB and a cloned disk cannot shrink (smaller values fail at apply).
 
 ## Architecture
@@ -96,6 +100,25 @@ The chain is only visible across files:
 - **`ansible/docker.yml`** installs Docker Engine + compose/buildx plugins from Docker's
   official apt repo (same `deb822_repository` pattern). Periphery acts on this host daemon,
   so it is a prerequisite for Komodo managing containers/stacks on a VM.
+- **`ansible/swarm.yml`** converges the Docker Swarm: probes each node's
+  `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (test-vm01) if inactive,
+  then joins every other node with the **manager** token (fetched `no_log`) — all nodes are
+  managers, so 3 nodes = raft quorum that survives one loss. Advertise/join on the LAN
+  addresses (vmbr0), never the tailnet. It never inits over, re-joins, or `swarm leave`s
+  an `active` node, and aborts rather than touching a `pending` one. The header carries the
+  lost-bootstrap-manager runbook. It also loads+persists the `openvswitch` kernel module
+  (swarm's ingress datapath; Debian never loads it and published ports blackhole without
+  it) and inits with `--default-addr-pool 10.10.0.0/16`, because swarm's stock ingress
+  subnet (10.0.0.0/24) collides with the LAN and silently breaks the routing mesh — a
+  tripwire assert re-checks the running cluster. Komodo deliberately does not own
+  membership — its Swarm resource only *talks to* managers — which is why this play exists.
+- **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three VMs) and
+  Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI
+  (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)
+  and pushing is how Komodo resources change; the sync's webhook can run it on push.
+  `[[variable]]`/secret material must NOT go in these files — synced TOML is plaintext git.
+  Stacks clone this repo via the `DracoBlackBelt` git account (read-only GitHub token,
+  registered in the Core UI; the name must match `git_account` in `komodo/stacks.toml`).
 - **`ansible/komodo.yml`** installs the Komodo Periphery agent as a root systemd service
   (`komodo.yml` owns binary, unit, and config; template at `templates/periphery.config.toml.j2`).
   **Outbound mode:** the agent dials `komodo_core_address` (a ts.net/MagicDNS name in
@@ -115,6 +138,8 @@ The chain is only visible across files:
 - Template 9000 exists, is sealed, 16 GiB disk.
 - Komodo Core runs on the `pbs` tailnet node at `https://pbs.tail9ef5e7.ts.net`
   (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
+- Live swarm `homelab`: 3 managers (test-vm01..03) formed by `swarm.yml`; ingress
+  overlay migrated to 10.10.0.0/24; canary stack `whoami` publishes :8080 on all nodes.
 - Toolchain: OpenTofu v1.12.6, provider `bpg/proxmox` 0.113.1, ansible-core 2.21.4
   (Homebrew ansible 14.4.0), Python 3.14.
 - `tofu plan` with empty `var.vms` is clean; dynamic inventory degrades gracefully to an

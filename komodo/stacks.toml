@@ -1,0 +1,21 @@
+# Stacks deployed to the 'homelab' swarm (swarms.toml). The compose files
+# live in this same repo under stacks/ -- Komodo clones homelab-infra via the
+# 'DracoBlackBelt' git account (register the read-only GitHub token in the
+# Core UI first) and runs `docker stack deploy`.
+#
+# deploy = true means: running the ResourceSync also (re)deploys the stack
+# when its files or config changed. Edit stacks/whoami/*, push, sync -> roll.
+
+[[stack]]
+name = "whoami"
+description = "Swarm canary: proves membership + GitOps deploy end to end"
+tags = ["swarm"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/whoami/docker-compose.yaml"]

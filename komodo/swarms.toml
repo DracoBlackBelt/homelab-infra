@@ -1,0 +1,19 @@
+# Komodo resources as code. This whole directory is synced by ONE bootstrap
+# ResourceSync created in the Core UI (repo homelab-infra, path komodo/);
+# after that, every Komodo object here is diffed/created/updated from git --
+# UI shows the computed actions, or the sync webhook runs them on push.
+#
+# Rule: nothing secret in these files. Synced TOML is plaintext in git, so
+# credentials stay out (Komodo secrets/variables, or Swarm secrets).
+
+# The swarm converged by ansible/swarm.yml. This resource does NOT manage
+# membership -- it registers the manager Servers Komodo talks through (tried
+# in order; all are managers, so losing one keeps deploys alive via quorum).
+[[swarm]]
+name = "homelab"
+description = "Docker Swarm on the homelab-infra VMs (3 managers)"
+tags = ["swarm"]
+
+[swarm.config]
+servers = ["test-vm01", "test-vm02", "test-vm03"]
+send_unhealthy_alerts = true
