@@ -5,5 +5,3 @@ terraform.tfvars
 *.auto.tfvars
 ansible/inventory/*.cache
 .vault-pass
-CLAUDE.md
-.mcp.json
