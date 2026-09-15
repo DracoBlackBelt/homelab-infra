@@ -57,7 +57,46 @@ ansible-playbook site.yml --limit <vm-name>
 ```
 
 Adding a VM is a one-line change in `terraform.tfvars`; the dynamic inventory
-picks it up automatically on the next play.
+picks it up automatically on the next play. New VMs also join the swarm as
+managers when `site.yml` reaches them.
+
+## Adding an app (deploy to the swarm)
+
+Everything is driven by git: edit, push, sync, deploy.
+
+1. **Write the compose file** at `stacks/<app>/docker-compose.yaml`. This is a
+   swarm stack (`docker stack deploy` semantics), so use `deploy:` for
+   replicas, placement constraints and update config — and pin image tags
+   (no `latest`), so re-syncs are deterministic.
+2. **Declare the stack** — one `[[stack]]` block in `komodo/stacks.toml`:
+
+   ```toml
+   [[stack]]
+   name = "immich"        # becomes the swarm stack name
+   deploy = true          # the sync also (re)deploys on change
+   [stack.config]
+   swarm = "homelab"
+   git_provider = "github.com"
+   git_account = "DracoBlackBelt"
+   repo = "DracoBlackBelt/homelab-infra"
+   branch = "main"
+   file_paths = ["stacks/immich/docker-compose.yaml"]  # several files merge like docker compose -f -f
+   ```
+
+3. **Push.** The ResourceSync over `komodo/` computes the diff; confirm its
+   actions in the UI — or wire the sync's webhook to the repo for zero-click
+   deploys. Updates to an existing app are the same loop: edit, push, sync.
+4. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
+   `docker service ls`, or `curl 10.0.0.41:8080` for the whoami canary.
+
+Rules of thumb: one directory and one `[[stack]]` per app (independent
+deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
+synced TOML is plaintext in git; secrets only as Komodo-managed Swarm secrets
+referenced from compose; bind mounts to VM paths like `/data/...` are fine.
+
+One-time setup that makes this loop exist (already done): a read-only GitHub
+token registered in Komodo as git account `DracoBlackBelt`, and the single
+`ResourceSync` pointing at this repo's `komodo/` directory.
 
 ## Notes
 
@@ -68,7 +107,5 @@ picks it up automatically on the next play.
 - Guest config is rebuilt deliberately, as one small play per concern
   (tailscale.yml, docker.yml, swarm.yml, komodo.yml). Extend it the same way — new plays,
   roles, or something like Dockge — rather than resurrecting `setup.yml`.
-- App deploys are GitOps: edit `komodo/*.toml` or `stacks/`, push, and the Komodo
-  ResourceSync (plus stack `deploy = true`) rolls the swarm. One-time UI setup: a
-  read-only GitHub token as git account `DracoBlackBelt`, and one ResourceSync over
-  `komodo/`. Secrets go in Komodo variables/secrets, never in the synced TOMLs.
+- App deploys are GitOps — see "Adding an app" above; Komodo resources change
+  only by editing `komodo/*.toml` / `stacks/` and pushing.

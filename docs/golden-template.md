@@ -14,6 +14,10 @@ Contents:
 - `qemu-guest-agent`, with `agent: 1` on the VM config so clones inherit the virtio-serial
   channel the daemon needs
 
+Nothing else. tailscale, Docker Engine, swarm membership, and the Komodo agent all arrive
+via the Ansible chain after each clone — deliberately: the image stays minimal so every
+guest change is a reviewable playbook edit, not an image rebuild.
+
 ## What the OpenTofu config depends on
 
 `tofu/vms.tf` inherits most hardware from the clone, but a few things it has to state

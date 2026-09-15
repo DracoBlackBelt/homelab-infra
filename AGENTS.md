@@ -52,6 +52,12 @@ as a new manager (add its name to `komodo/swarms.toml` `servers` only for read-p
 redundancy in Core). `disk_size` must be >= 16: the
 template's volume is 16 GiB and a cloned disk cannot shrink (smaller values fail at apply).
 
+**Adding an app:** `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, pinned
+image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
+`swarm = "homelab"` with `deploy = true`, then push — the ResourceSync diffs and
+(re)deploys. One stack per app; secrets never enter synced TOMLs (see the
+komodo/*.toml architecture bullet and the README's "Adding an app" section).
+
 ## Architecture
 
 The chain is only visible across files:
