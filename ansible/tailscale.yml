@@ -1,0 +1,124 @@
+# Install Tailscale from the official apt repo and join every VM to the tailnet.
+#
+# The auth key lives in group_vars/vms/vault.yml (encrypted; password file at
+# repo root, see ansible.cfg). Generate a key that is REUSABLE + EPHEMERAL at
+# https://login.tailscale.com/admin/settings/keys :
+#   - reusable:  one key registers every current and future VM
+#   - ephemeral: each node is removed from the tailnet after it has been
+#     offline long enough; rerunning this playbook re-registers it with the
+#     same key -- no vault edit needed
+# Auth keys themselves expire after at most 90 days; swap in a fresh key with
+#   cd ansible && ansible-vault edit group_vars/vms/vault.yml
+# when that happens (already-registered nodes are unaffected until their own
+# 180-day node-key expiry).
+#
+# The key is handed to `tailscale up` via a mode-0600 temp file
+# (--auth-key=file://...) because the bare CLI ignores TS_AUTHKEY and the
+# in-argv flag can be echoed back by tailscale's own error messages.
+#
+# Usage:
+#   cd ansible && ansible-playbook tailscale.yml
+#   cd ansible && ansible-playbook tailscale.yml --tags install   # package only
+#   cd ansible && ansible-playbook tailscale.yml --limit test-vm01
+- name: Install and register Tailscale
+  hosts: vms
+  gather_facts: true
+
+  vars:
+    tailscale_repo_url: "https://pkgs.tailscale.com/stable/debian"
+    tailscale_codename: "{{ ansible_facts['distribution_release'] }}"
+
+  tasks:
+    - name: Add the Tailscale apt repository
+      ansible.builtin.deb822_repository:
+        name: tailscale
+        types: [deb]
+        uris: "{{ tailscale_repo_url }}/"
+        suites: "{{ tailscale_codename }}"
+        components: [main]
+        # The module fetches the key itself and installs it under
+        # /etc/apt/keyrings/<name>.gpg.
+        signed_by: "{{ tailscale_repo_url }}/{{ tailscale_codename }}.noarmor.gpg"
+        state: present
+      tags: install
+
+    - name: Install the tailscale package
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        # Unconditional: deb822_repository does not refresh the cache itself,
+        # and a cache_valid_time window would let a stale cache hide the
+        # package just added by the previous task.
+        update_cache: true
+      tags: install
+
+    - name: Ensure tailscaled is enabled and running
+      ansible.builtin.systemd_service:
+        name: tailscaled
+        state: started
+        enabled: true
+      tags: install
+
+    - name: Verify a real auth key has been vaulted
+      ansible.builtin.assert:
+        that: tailscale_auth_key is search('tskey-auth-') and 'REPLACE-ME' not in tailscale_auth_key
+        quiet: true
+        fail_msg: "Replace the placeholder first: cd ansible && ansible-vault edit group_vars/vms/vault.yml"
+      tags: register
+
+    - name: Check current Tailscale login state
+      ansible.builtin.command: tailscale status --json
+      register: tailscale_status
+      changed_when: false
+      failed_when: tailscale_status.rc not in (0, 1)  # rc 1 = logged out
+      tags: register
+
+    - name: Register the node with the tailnet
+      when: >-
+        tailscale_status.rc != 0
+        or (tailscale_status.stdout | from_json).BackendState not in ['Running', 'Starting']
+      block:
+        # The CLI (1.102) does NOT read a TS_AUTHKEY env var -- only
+        # containerboot/tsnet do. --auth-key=file:// keeps the key out of argv
+        # AND out of the guard-error text that `tailscale up` prints when it
+        # re-echoes the full command line.
+        - name: Write the auth key to a root-only temp file
+          ansible.builtin.copy:
+            content: "{{ tailscale_auth_key }}"
+            dest: /root/.tailscale-authkey
+            mode: "0600"
+          no_log: true
+
+        - name: tailscale up
+          ansible.builtin.command:
+            cmd: >-
+              tailscale up
+              --hostname {{ inventory_hostname }}
+              --ssh
+              --auth-key=file:///root/.tailscale-authkey
+          no_log: true
+      always:
+        - name: Remove the auth key temp file
+          ansible.builtin.file:
+            path: /root/.tailscale-authkey
+            state: absent
+      tags: register
+
+    - name: Ensure Tailscale SSH stays enabled across re-registrations
+      ansible.builtin.command: tailscale set --ssh
+      changed_when: false
+      tags: register
+
+    - name: Wait for a tailnet IPv4 address
+      ansible.builtin.command: tailscale ip -4
+      register: tailscale_ip
+      until: tailscale_ip.rc == 0 and tailscale_ip.stdout | trim | length > 0
+      retries: 12
+      delay: 5
+      changed_when: false
+      tags: register
+
+    - name: Show tailnet identity
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} is on the tailnet at {{ tailscale_ip.stdout | trim }}"
+      tags: register

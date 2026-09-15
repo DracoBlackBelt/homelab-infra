@@ -26,7 +26,11 @@ cd ansible && ansible-galaxy collection install -r requirements.yml   # one-time
 cd ansible && ansible-inventory --graph                               # what tofu exposes
 cd ansible && ansible-playbook ping.yml                               # smoke-test the chain
 cd ansible && ansible-playbook ping.yml --limit <vm-name>
+cd ansible && ansible-playbook tailscale.yml                          # install + join tailnet
 ```
+
+Secrets live in vault-encrypted files under `group_vars/` (e.g. `vms/vault.yml`);
+`ansible.cfg` reads the password from `../.vault-pass` (gitignored) — create it once per machine.
 
 There is no lint or unit-test suite; `ansible/ping.yml` is the closest thing to a test.
 `requirements.yml` is the contract for collection deps — don't rely on whatever
@@ -68,10 +72,20 @@ The chain is only visible across files:
   with `ansible_host` + `ansible_user` hostvars. Addresses come from the config, not the
   agent's report, so they can't go stale between apply and play. Before the first apply
   (i.e. the current baseline) the inventory is empty and plays report "no hosts matched".
-- **`ansible/group_vars/vms.yml`** sets `ansible_become: true` — Ansible connects as
-  `debian` (sourced once from `local.vm_username` in `tofu/locals.tf` and exported via
-  `vm_inventory`) and escalates; escalation is deliberately an Ansible concern, not part
-  of the tofu output.
+- **`ansible/group_vars/vms/`** holds the group's variables: `all.yml` sets
+  `ansible_become: true` — Ansible connects as `debian` (sourced once from
+  `local.vm_username` in `tofu/locals.tf` and exported via `vm_inventory`) and escalates;
+  escalation is deliberately an Ansible concern, not part of the tofu output.
+  `vault.yml` (ansible-vault encrypted) holds `tailscale_auth_key` used by `tailscale.yml`.
+- **`ansible/tailscale.yml`** installs the package from Tailscale's official apt repo
+  (`deb822_repository`, key fetched from `pkgs.tailscale.com`) and registers each VM with
+  one reusable+ephemeral auth key. The CLI does not read `TS_AUTHKEY` (that's
+  containerboot-only), so the key goes through a mode-0600 temp file
+  (`--auth-key=file://…`, removed in the block's `always`), never argv, `no_log`'d.
+  `tailscale up` is gated on `tailscale status` so reruns don't re-present the key;
+  Tailscale SSH is enabled (`--ssh`). Auth keys expire after at most 90 days — swap in a
+  fresh one with `ansible-vault edit group_vars/vms/vault.yml`; ephemeral nodes GC'd after
+  long shutdowns re-register with the same key.
 
 ## Verified facts (baseline check, 2026-09-15)
 
@@ -99,3 +113,6 @@ The chain is only visible across files:
   Watchtower, ufw, unattended-upgrades, sshd hardening, swap) was removed at the
   baseline reset. Recover it with `git show bafa092:ansible/setup.yml` and rebuild
   deliberately, not by reflex.
+- Ansible **silently ignores** `group_vars/vms.yml` once a `group_vars/vms/` directory
+  exists (the directory shadows the same-named file). That is why the become setting
+  lives in `vms/all.yml`. Keep all `vms` group vars inside the directory.
