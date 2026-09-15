@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Ansible inventory built from the OpenTofu `vm_inventory` output.
 
-The VMs in tofu/vms.tf are the only source of truth: this reads what tofu knows
-and hands it to Ansible, so adding a VM there is enough to make Ansible see it.
+The VMs declared in tofu/terraform.tfvars are the only source of truth: this
+reads what tofu knows and hands it to Ansible, so adding a VM there is enough
+to make Ansible see it.
 
 Reads state only -- no Proxmox API calls, so it does not care whether the VMs
 are up. Before the first apply there are no outputs yet and the inventory is
@@ -31,11 +32,17 @@ def tofu_outputs():
         warn("tofu is not on PATH, returning an empty inventory")
         return {}
 
-    result = subprocess.run(
-        ["tofu", f"-chdir={TOFU_DIR}", "output", "-json"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["tofu", f"-chdir={TOFU_DIR}", "output", "-json"],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        warn("`tofu output` timed out after 60s, returning an empty inventory")
+        return {}
     if result.returncode != 0:
         warn(f"`tofu output` failed, returning an empty inventory: {result.stderr.strip()}")
         return {}
@@ -48,7 +55,11 @@ def tofu_outputs():
 
 
 def inventory():
-    hostvars = tofu_outputs().get("vm_inventory", {}).get("value", {})
+    # The `or {}` fallbacks are defensive: dict defaults only cover the
+    # missing-key case, so a present-but-null vm_inventory (or null value)
+    # would otherwise reach sorted(None) and crash the whole inventory
+    # instead of degrading to empty.
+    hostvars = (tofu_outputs().get("vm_inventory") or {}).get("value") or {}
     if not hostvars:
         warn(f"no VMs in the tofu state -- has `tofu -chdir={TOFU_DIR} apply` run?")
 
