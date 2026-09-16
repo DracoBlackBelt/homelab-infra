@@ -14,7 +14,7 @@ connects a Komodo Periphery agent back to Komodo Core (outbound only — Core ne
 needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
 declared as git-synced TOML in `komodo/`, applied by one bootstrap ResourceSync.
 A `traefik` edge stack (deployed through the same loop) routes apps by hostname
-under `*.swarm.int.huisman.dev`.
+under `*.swarm.huisman.dev`.
 
 The *instances* are not in git: `var.vms` defaults to `{}` and real VMs are
 declared only in the gitignored `tofu/terraform.tfvars`. The old all-in-one
@@ -72,7 +72,7 @@ Everything is driven by git: edit, push, sync, deploy.
    (no `latest`), so re-syncs are deterministic. A webapp gets routed by
    Traefik instead of publishing a port: join the external `proxy` overlay and
    put the routing in `deploy.labels` (see `stacks/whoami` for the canonical
-    pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.int.huisman.dev\`)`
+    pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.huisman.dev\`)`
     router on entrypoint `websecure` with `tls.certresolver=le`, and
     `loadbalancer.server.port`).
 2. **Declare the stack** — one `[[stack]]` block in `komodo/stacks.toml`:
@@ -96,8 +96,8 @@ Everything is driven by git: edit, push, sync, deploy.
 4. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
    `docker service ls`. Apps are hostname-only (no published ports) — before
    DNS exists, `curl -s --resolve
-   whoami.swarm.int.huisman.dev:443:10.0.0.41
-   https://whoami.swarm.int.huisman.dev/` against any node IP.
+   whoami.swarm.huisman.dev:443:10.0.0.41
+   https://whoami.swarm.huisman.dev/` against any node IP.
 
 ### Routing: the Traefik edge
 
@@ -114,9 +114,9 @@ Everything is driven by git: edit, push, sync, deploy.
   publishes 80/443 via ingress — the routing mesh makes any node IP a valid
   target and survives a node loss. `web` (:80) is redirect-only.
 - **DNS (manual, outside git)**: AdGuard Home (10.0.0.70) → Filters → DNS
-  rewrites: `*.swarm.int.huisman.dev` → a swarm node LAN IP. One record is
+  rewrites: `*.swarm.huisman.dev` → a swarm node LAN IP. One record is
   enough (the mesh forwards), but all three IPs give DNS-level spreading.
-- **TLS**: one Let's Encrypt wildcard for `*.swarm.int.huisman.dev`, issued by
+- **TLS**: one Let's Encrypt wildcard for `*.swarm.huisman.dev`, issued by
   Traefik via DNS-01 at Cloudflare (zone `huisman.dev` — validation is public
   even though AdGuard resolves the names locally). The API token (`Edit zone
   DNS` template, scoped to that zone) lives in the **swarm secret**
