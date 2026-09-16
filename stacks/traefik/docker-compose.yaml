@@ -1,0 +1,48 @@
+# Edge router for the swarm: v3-native Swarm provider reads routing labels
+# off SERVICES (they live in each app's compose file under deploy.labels).
+# Steady state: client -> any node :80 (ingress mesh) -> traefik (global,
+# one task per node) -> app:port over the shared `proxy` overlay.
+# 443 is published but idle until the TLS PR adds a certresolver.
+services:
+  traefik:
+    image: traefik:v3.7.13
+    # The swarm provider needs the cluster API. Every node here is a
+    # manager, so the local socket always serves it; :ro because Traefik
+    # must only READ services/labels, never create containers.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+    ports:
+      # ingress mode = routing mesh: node:80 answers on all three managers
+      # even though traffic may be served by a task on any of them.
+      - target: 80
+        published: "80"
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: "443"
+        protocol: tcp
+        mode: ingress
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
+      - --providers.swarm.exposedbydefault=false
+      - --providers.swarm.network=proxy
+      - --accesslog=true
+      - --log.level=INFO
+    deploy:
+      # global: one task per node, so the mesh never forwards to a node
+      # without an edge; node.role keeps future workers out (no cluster API).
+      mode: global
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+
+networks:
+  proxy:
+    name: proxy
+    external: true

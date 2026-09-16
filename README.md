@@ -13,6 +13,8 @@ installs Docker Engine, converges them into a Docker Swarm (all managers), and
 connects a Komodo Periphery agent back to Komodo Core (outbound only — Core never
 needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
 declared as git-synced TOML in `komodo/`, applied by one bootstrap ResourceSync.
+A `traefik` edge stack (deployed through the same loop) routes apps by hostname
+under `*.swarm.int.huisman.dev`.
 
 The *instances* are not in git: `var.vms` defaults to `{}` and real VMs are
 declared only in the gitignored `tofu/terraform.tfvars`. The old all-in-one
@@ -67,7 +69,11 @@ Everything is driven by git: edit, push, sync, deploy.
 1. **Write the compose file** at `stacks/<app>/docker-compose.yaml`. This is a
    swarm stack (`docker stack deploy` semantics), so use `deploy:` for
    replicas, placement constraints and update config — and pin image tags
-   (no `latest`), so re-syncs are deterministic.
+   (no `latest`), so re-syncs are deterministic. A webapp gets routed by
+   Traefik instead of publishing a port: join the external `proxy` overlay and
+   put the routing in `deploy.labels` (see `stacks/whoami` for the canonical
+   pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.int.huisman.dev\`)`
+   router on entrypoint `web`, and `loadbalancer.server.port`).
 2. **Declare the stack** — one `[[stack]]` block in `komodo/stacks.toml`:
 
    ```toml
@@ -87,7 +93,35 @@ Everything is driven by git: edit, push, sync, deploy.
    actions in the UI — or wire the sync's webhook to the repo for zero-click
    deploys. Updates to an existing app are the same loop: edit, push, sync.
 4. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
-   `docker service ls`, or `curl 10.0.0.41:8080` for the whoami canary.
+   `docker service ls`, or `curl -H "Host: whoami.swarm.int.huisman.dev"
+   http://<any-node-ip>` (no DNS needed yet) / `curl 10.0.0.41:8080` for the
+   whoami canary.
+
+### Routing: the Traefik edge
+
+- **One shared overlay (`proxy`)**: Traefik and every routed app attach to it;
+  Traefik reaches services by DNS name (`whoami`, `uptime-kuma`) with no
+  published ports. Swarm prefixes stack-created network names, so `proxy`
+  can't be owned by any stack — `swarm.yml` ensures it exists (rerun after
+  `swarm leave` disasters).
+- **Config lives with the app**: the v3 *swarm provider* reads routing from
+  `deploy.labels` on services, so adding an app's route is a commit to that
+  app's compose file — no Traefik redeploy. `exposedbydefault=false`: nothing
+  routes unless labeled.
+- **Edge shape**: `stacks/traefik` runs **global** (one task per node) and
+  publishes 80/443 via ingress — the routing mesh makes any node IP a valid
+  target and survives a node loss. 443 is idle until TLS lands.
+- **DNS (manual, outside git)**: AdGuard Home (10.0.0.70) → Filters → DNS
+  rewrites: `*.swarm.int.huisman.dev` → a swarm node LAN IP. One record is
+  enough (the mesh forwards), but all three IPs give DNS-level spreading.
+- **TLS (planned)**: Let's Encrypt DNS-01 via Cloudflare (zone `huisman.dev`;
+  validation is public even though resolution is local). A scoped API token
+  (`Zone:DNS:Edit`) goes in as an external **swarm secret** `docker secret
+  create`d on a manager — never in git; consumed by Traefik via an
+  entrypoint wrapper exporting `CF_DNS_API_TOKEN`. One wildcard cert for
+  `*.swarm.int.huisman.dev` via `acme.domains`, then routers flip to
+  `websecure` + http→https redirect, and the app stacks lose their fallback
+  published ports.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —

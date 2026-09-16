@@ -153,9 +153,24 @@
           {{ swarm_init_manager }} to see who isn't.
       run_once: true
 
+    # Cluster-wide overlay shared by the Traefik edge and every routed app.
+    # Stack-created networks get a '<stack>_' prefix and thus can't be shared
+    # across stacks, so the stacks declare it `external: true` and this play
+    # owns creation (attachable: lets you `docker run` a debug container onto
+    # it too). Idempotent: inspect, create only if missing.
+    - name: Ensure the 'proxy' overlay network exists
+      ansible.builtin.shell: >-
+        docker network inspect proxy >/dev/null 2>&1
+        || docker network create --driver overlay --attachable proxy
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: proxy_net
+      changed_when: proxy_net.stdout | trim | length > 0
+
     - name: Swarm status
       ansible.builtin.debug:
         msg: >-
           Swarm on {{ swarm_init_manager }} ({{ hostvars[swarm_init_manager].ansible_host }}:2377)
           has {{ swarm_managers | length }} Ready managers: {{ swarm_managers | join(', ') }}.
+          Overlay 'proxy' ensured for Traefik routing.
           Next: create the ResourceSync over komodo/ so the Swarm resource appears in Core.

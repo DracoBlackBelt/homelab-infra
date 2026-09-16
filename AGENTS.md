@@ -57,6 +57,10 @@ image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
 `swarm = "homelab"` with `deploy = true`, then push — the ResourceSync diffs and
 (re)deploys. One stack per app; secrets never enter synced TOMLs (see the
 komodo/*.toml architecture bullet and the README's "Adding an app" section).
+Webapps are routed by Traefik, not by publishing ports: join the external `proxy`
+overlay + `deploy.labels` with `traefik.enable=true`, a
+`Host(\`<app>.swarm.int.huisman.dev\`)` router on entrypoint `web`, and
+`loadbalancer.server.port` — copy `stacks/whoami/`.
 
 ## Architecture
 
@@ -115,9 +119,23 @@ The chain is only visible across files:
   lost-bootstrap-manager runbook. It also loads+persists the `openvswitch` kernel module
   (swarm's ingress datapath; Debian never loads it and published ports blackhole without
   it) and inits with `--default-addr-pool 10.10.0.0/16`, because swarm's stock ingress
-  subnet (10.0.0.0/24) collides with the LAN and silently breaks the routing mesh — a
-  tripwire assert re-checks the running cluster. Komodo deliberately does not own
-  membership — its Swarm resource only *talks to* managers — which is why this play exists.
+   subnet (10.0.0.0/24) collides with the LAN and silently breaks the routing mesh — a
+   tripwire assert re-checks the running cluster. Komodo deliberately does not own
+   membership — its Swarm resource only *talks to* managers — which is why this play exists.
+   It also ensures the cluster-wide `proxy` overlay (idempotent create) that Traefik and
+   all routed apps share: stack-created networks get a `<stack>_` prefix and thus can't
+   be shared across stacks, so no stack may own it.
+- **`stacks/traefik/`** is the edge router: pinned Traefik v3 with the native **swarm
+   provider** (`exposedbydefault=false`), reading routing from `deploy.labels` on swarm
+   services — so an app's route is defined in the app's own compose file, and adding one
+   never redeploys Traefik. Runs **global** (one task per node; all nodes are managers, so
+   the mounted `docker.sock:ro` always serves the cluster API) and publishes 80/443 via
+   **ingress**, letting the routing mesh serve the edge from any node IP. DNS is manual,
+   outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.int.huisman.dev` → a node IP
+   (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is the planned next
+   step: Cloudflare DNS-01 (huisman.dev) for one `*.swarm.int.huisman.dev` wildcard cert,
+   API token as an external swarm secret `cloudflare_api_token` (value never in git;
+   lego reads env, so an entrypoint wrapper cats the secret file) — see README "Routing".
 - **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three VMs) and
   Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI
   (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)

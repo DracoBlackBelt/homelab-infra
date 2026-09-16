@@ -33,3 +33,17 @@ git_account = "DracoBlackBelt"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
+
+[[stack]]
+name = "traefik"
+description = "Edge router: swarm provider + Host() routing on :80 (global, all managers)"
+tags = ["swarm", "infra"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/traefik/docker-compose.yaml"]
