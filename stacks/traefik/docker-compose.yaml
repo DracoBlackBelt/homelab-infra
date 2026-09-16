@@ -8,8 +8,10 @@
 # swarm 'homelab' -> Secrets -> cloudflare_api_token) and referenced here by
 # name only. lego (Traefik's ACME lib) reads the token from the environment
 # while swarm secrets mount as files -- hence the sh wrapper below: export it
-# from /run/secrets, then exec /traefik forwarding the command: flags via
-# "$@" (the literal "sh" arg is $0 so they all survive).
+# from /run/secrets, then exec traefik (on PATH -- the Docker Hub image is
+# alpine with /usr/local/bin/traefik, NOT the repo Dockerfile's /traefik;
+# that mistake caused exit 127) forwarding the command: flags via "$@" (the
+# literal "sh" arg is $0 so they all survive). All $ must be doubled.
 #
 # acme.json lives on a node-local volume: each of the 3 replicas issues the
 # wildcard once and renews ~every 60d -- trivially inside LE's 50 certs/week.
@@ -40,7 +42,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - 'export CF_DNS_API_TOKEN="$$(cat /run/secrets/cloudflare_api_token)"; exec /traefik "$$@"'
+      - 'export CF_DNS_API_TOKEN="$$(cat /run/secrets/cloudflare_api_token)"; exec traefik "$$@"'
       - sh
     command:
       - --entrypoints.web.address=:80
