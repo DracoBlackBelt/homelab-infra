@@ -40,7 +40,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - 'export CF_DNS_API_TOKEN="$(cat /run/secrets/cloudflare_api_token)"; exec /traefik "$@"'
+      - 'export CF_DNS_API_TOKEN="$$(cat /run/secrets/cloudflare_api_token)"; exec /traefik "$$@"'
       - sh
     command:
       - --entrypoints.web.address=:80
