@@ -47,3 +47,17 @@ git_account = "DracoBlackBelt"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/traefik/docker-compose.yaml"]
+
+[[stack]]
+name = "freshrss"
+description = "RSS reader + its Postgres (db on a stack-local network only; pinned to komodo-srv-02)"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/freshrss/docker-compose.yaml"]

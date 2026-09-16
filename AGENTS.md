@@ -61,6 +61,11 @@ Webapps are routed by Traefik, not by publishing ports: join the external `proxy
 overlay + `deploy.labels` with `traefik.enable=true`, a
 `Host(\`<app>.swarm.huisman.dev\`)` router on entrypoint `websecure` with
 `tls.certresolver=le`, and `loadbalancer.server.port` — copy `stacks/whoami/`.
+App-with-database (see `stacks/freshrss/`): DB on a stack-local network only,
+volume-bearing services pinned to one node, swarm secret consumed via native
+`*_FILE` env or a `$$`-escaped sh wrapper (image entrypoints live under
+`/var/www/...`, not `/traefik`-style paths — inspect the real image before
+overriding).
 
 ## Architecture
 

@@ -134,6 +134,12 @@ Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
 synced TOML is plaintext in git; secrets only as Komodo-managed Swarm secrets
 referenced from compose; bind mounts to VM paths like `/data/...` are fine.
+Apps with a database (see `stacks/freshrss`): the DB joins only a stack-local
+network (never `proxy`, no router, no published port — structurally private);
+name it after its service (e.g. `db`) for DNS; pin both the DB and its volume
+consumer to one node; prefer native `*_PASSWORD_FILE` secret mounts, or the
+sh-wrapper env export (compose `$$` escaping!) when an app only reads env;
+set `deploy.resources.limits` — the nodes are small.
 
 One-time setup that makes this loop exist (already done): a read-only GitHub
 token registered in Komodo as git account `DracoBlackBelt`, and the single

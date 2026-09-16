@@ -1,0 +1,134 @@
+# FreshRSS + PostgreSQL: the first multi-service stateful stack.
+# Architecture notes (deliberate teaching points):
+#  * The DB joins ONLY the stack-local `db` network -- no proxy overlay, no
+#    published port, no Traefik router: it is structurally unreachable from
+#    anything except FreshRSS itself.
+#  * FreshRSS data + Postgres data are named volumes, so BOTH services are
+#    pinned to komodo-srv-02 (the roomiest node at deploy time).
+#  * One swarm secret, two consumption patterns: Postgres natively supports
+#    _FILE (POSTGRES_PASSWORD_FILE), FreshRSS does not -- so its entrypoint
+#    is the proven sh wrapper that exports DB_PASSWORD from /run/secrets and
+#    execs the image's own ./Docker/entrypoint.sh (absolute; workdir-relative
+#    would work but this is clearer). Every $ must be doubled for compose.
+#  * FRESHRSS_INSTALL auto-provisions config.php on first boot (idempotent:
+#    already-installed exits 3 and is logged, not fatal). The $${DB_PASSWORD}
+#    inside it is expanded by the image's own `eval echo` at boot, pulling the
+#    value the wrapper exported -- so the password never appears in git. Keep
+#    the secret alphanumeric (eval + shell word-splitting); `openssl rand -hex`
+#    qualifies.
+#  * No account is created here: first real step is an admin user via the
+#    container's cli/create-user.php (Komodo terminal) -- keeps credentials
+#    out of git.
+#  * Resource limits are the swarm-side seatbelts for a 900 MB node.
+services:
+  freshrss:
+    image: freshrss/freshrss:1.30.0
+    networks:
+      - proxy
+      - db
+    secrets:
+      - freshrss_db_password
+    volumes:
+      - freshrss-data:/var/www/FreshRSS/data
+      - freshrss-extensions:/var/www/FreshRSS/extensions
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export DB_PASSWORD="$$(cat /run/secrets/freshrss_db_password)"; exec /var/www/FreshRSS/Docker/entrypoint.sh "$$@"'
+      - sh
+    environment:
+      TZ: Europe/Amsterdam
+      # refresh feeds at :04 and :34 (cron minutes, not the kuma kind)
+      CRON_MIN: '4,34'
+      # swarm overlay subnets only; traffic reaches us via the proxy network
+      TRUSTED_PROXY: 10.10.0.0/16 172.16.0.0/12
+      FRESHRSS_INSTALL: |-
+        --default-user job
+        --base-url https://rss.swarm.huisman.dev
+        --title FreshRSS
+        --language en
+        --auth-type form
+        --db-type pgsql
+        --db-host db
+        --db-user freshrss
+        --db-base freshrss
+        --db-password $${DB_PASSWORD}
+    healthcheck:
+      test: ['CMD', 'cli/health.php']
+      interval: 75s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == komodo-srv-02
+      resources:
+        limits:
+          memory: 320M
+        reservations:
+          memory: 128M
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.freshrss.rule=Host(`rss.swarm.huisman.dev`)"
+        - "traefik.http.routers.freshrss.entrypoints=websecure"
+        - "traefik.http.routers.freshrss.tls=true"
+        - "traefik.http.routers.freshrss.tls.certresolver=le"
+        - "traefik.http.routers.freshrss.tls.domains[0].main=*.swarm.huisman.dev"
+        - "traefik.http.services.freshrss.loadbalancer.server.port=80"
+
+  db:
+    image: postgres:18.6
+    networks:
+      - db
+    secrets:
+      - freshrss_db_password
+    volumes:
+      - freshrss-db-data:/var/lib/postgresql
+    environment:
+      POSTGRES_DB: freshrss
+      POSTGRES_USER: freshrss
+      POSTGRES_PASSWORD_FILE: /run/secrets/freshrss_db_password
+    # small-RAM tuning: the stock 1 GB shared_buffers would eat this node
+    command:
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - work_mem=2MB
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U freshrss -d freshrss']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == komodo-srv-02
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+      restart_policy:
+        condition: any
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+  db:
+    driver: overlay
+
+secrets:
+  freshrss_db_password:
+    external: true
+
+volumes:
+  freshrss-data:
+  freshrss-extensions:
+  freshrss-db-data:
