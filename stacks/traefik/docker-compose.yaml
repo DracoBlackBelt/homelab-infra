@@ -47,8 +47,7 @@ services:
     command:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      # web exists only to bounce to websecure; 302 (not permanent) while
-      # the path is new, so browsers don't cache a half-migrated redirect
+      # web exists only to bounce to websecure (currently 308)
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --providers.swarm.endpoint=unix:///var/run/docker.sock
