@@ -57,8 +57,9 @@ services:
       - --certificatesresolvers.le.acme.email=job.r.huisman@gmail.com
       - --certificatesresolvers.le.acme.storage=/data/acme.json
       - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
-      # one pre-provisioned wildcard; routers just reference the resolver
-      - "--certificatesresolvers.le.acme.domains[0].main=*.swarm.int.huisman.dev"
+      # (no acme.domains here: removed in v3 -- routers declare
+      # tls.domains[0].main=*.swarm.int.huisman.dev themselves, all resolving
+      # to this one cert)
       - --accesslog=true
       - --log.level=INFO
     deploy:
