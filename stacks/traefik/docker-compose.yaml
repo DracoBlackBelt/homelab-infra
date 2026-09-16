@@ -1,7 +1,7 @@
 # Edge router for the swarm: v3-native Swarm provider reads routing labels
 # off SERVICES (they live in each app's compose file under deploy.labels).
 # Steady state: client -> node :80 (ingress mesh) -> traefik (global, one task
-# per node) -> proxy overlay -> app:port; :80 302s to :443 and TLS is served
+# per node) -> proxy overlay -> app:port; :80 308s to :443 and TLS is served
 # with a single Let's Encrypt wildcard cert (Cloudflare DNS-01).
 #
 # Secret plumbing: the Cloudflare token is created OUT of git (Komodo UI ->
