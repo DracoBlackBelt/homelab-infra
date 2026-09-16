@@ -4,7 +4,7 @@
 # Core UI first) and runs `docker stack deploy`.
 #
 # deploy = true means: running the ResourceSync also (re)deploys the stack
-# when its files or config changed. Edit stacks/whoami/*, push, sync -> roll.
+# when its files or config changed. Edit stacks/<app>/*, push, sync -> roll.
 
 [[stack]]
 name = "whoami"
@@ -19,3 +19,17 @@ git_account = "DracoBlackBelt"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/whoami/docker-compose.yaml"]
+
+[[stack]]
+name = "uptime-kuma"
+description = "Uptime monitoring webui (first real app; stateful volume pinned to komodo-srv-01)"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
