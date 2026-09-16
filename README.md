@@ -72,8 +72,9 @@ Everything is driven by git: edit, push, sync, deploy.
    (no `latest`), so re-syncs are deterministic. A webapp gets routed by
    Traefik instead of publishing a port: join the external `proxy` overlay and
    put the routing in `deploy.labels` (see `stacks/whoami` for the canonical
-   pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.int.huisman.dev\`)`
-   router on entrypoint `web`, and `loadbalancer.server.port`).
+    pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.int.huisman.dev\`)`
+    router on entrypoint `websecure` with `tls.certresolver=le`, and
+    `loadbalancer.server.port`).
 2. **Declare the stack** — one `[[stack]]` block in `komodo/stacks.toml`:
 
    ```toml
@@ -93,9 +94,10 @@ Everything is driven by git: edit, push, sync, deploy.
    actions in the UI — or wire the sync's webhook to the repo for zero-click
    deploys. Updates to an existing app are the same loop: edit, push, sync.
 4. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
-   `docker service ls`, or `curl -H "Host: whoami.swarm.int.huisman.dev"
-   http://<any-node-ip>` (no DNS needed yet) / `curl 10.0.0.41:8080` for the
-   whoami canary.
+   `docker service ls`. Apps are hostname-only (no published ports) — before
+   DNS exists, `curl -s --resolve
+   whoami.swarm.int.huisman.dev:443:10.0.0.41
+   https://whoami.swarm.int.huisman.dev/` against any node IP.
 
 ### Routing: the Traefik edge
 
@@ -110,18 +112,23 @@ Everything is driven by git: edit, push, sync, deploy.
   routes unless labeled.
 - **Edge shape**: `stacks/traefik` runs **global** (one task per node) and
   publishes 80/443 via ingress — the routing mesh makes any node IP a valid
-  target and survives a node loss. 443 is idle until TLS lands.
+  target and survives a node loss. `web` (:80) is redirect-only.
 - **DNS (manual, outside git)**: AdGuard Home (10.0.0.70) → Filters → DNS
   rewrites: `*.swarm.int.huisman.dev` → a swarm node LAN IP. One record is
   enough (the mesh forwards), but all three IPs give DNS-level spreading.
-- **TLS (planned)**: Let's Encrypt DNS-01 via Cloudflare (zone `huisman.dev`;
-  validation is public even though resolution is local). A scoped API token
-  (`Zone:DNS:Edit`) goes in as an external **swarm secret** `docker secret
-  create`d on a manager — never in git; consumed by Traefik via an
-  entrypoint wrapper exporting `CF_DNS_API_TOKEN`. One wildcard cert for
-  `*.swarm.int.huisman.dev` via `acme.domains`, then routers flip to
-  `websecure` + http→https redirect, and the app stacks lose their fallback
-  published ports.
+- **TLS**: one Let's Encrypt wildcard for `*.swarm.int.huisman.dev`, issued by
+  Traefik via DNS-01 at Cloudflare (zone `huisman.dev` — validation is public
+  even though AdGuard resolves the names locally). The API token (`Edit zone
+  DNS` template, scoped to that zone) lives in the **swarm secret**
+  `cloudflare_api_token`, created in the Komodo UI (Swarm `homelab` → Secrets)
+  and referenced from compose as `external: true` — the value never enters
+  git; rotate it there too (Komodo does the rm/recreate + service-update
+  dance). lego reads the token from env while swarm secrets mount as files,
+  so the service entrypoint wraps `/traefik "$@"` to export
+  `CF_DNS_API_TOKEN` from `/run/secrets/…`. Each replica keeps its own
+  `acme.json` in the node-local `traefik-acme` volume — three issuances per
+  renewal cycle, far under LE's limits. Routers: `websecure` +
+  `tls.certresolver=le`.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —

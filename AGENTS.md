@@ -59,8 +59,8 @@ image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
 komodo/*.toml architecture bullet and the README's "Adding an app" section).
 Webapps are routed by Traefik, not by publishing ports: join the external `proxy`
 overlay + `deploy.labels` with `traefik.enable=true`, a
-`Host(\`<app>.swarm.int.huisman.dev\`)` router on entrypoint `web`, and
-`loadbalancer.server.port` — copy `stacks/whoami/`.
+`Host(\`<app>.swarm.int.huisman.dev\`)` router on entrypoint `websecure` with
+`tls.certresolver=le`, and `loadbalancer.server.port` — copy `stacks/whoami/`.
 
 ## Architecture
 
@@ -132,10 +132,13 @@ The chain is only visible across files:
    the mounted `docker.sock:ro` always serves the cluster API) and publishes 80/443 via
    **ingress**, letting the routing mesh serve the edge from any node IP. DNS is manual,
    outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.int.huisman.dev` → a node IP
-   (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is the planned next
-   step: Cloudflare DNS-01 (huisman.dev) for one `*.swarm.int.huisman.dev` wildcard cert,
-   API token as an external swarm secret `cloudflare_api_token` (value never in git;
-   lego reads env, so an entrypoint wrapper cats the secret file) — see README "Routing".
+   (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is live: Cloudflare
+   DNS-01 issues one `*.swarm.int.huisman.dev` wildcard via the `le` resolver; the
+   API token is the external swarm secret `cloudflare_api_token` (value created in
+   the Komodo UI, never in git; lego reads env, so the entrypoint cats the secret
+   file into `CF_DNS_API_TOKEN` before `exec /traefik "$@"`). Apps route on
+   `websecure`, `web` is redirect-only, and steady-state app stacks publish **no**
+   ports — see README "Routing".
 - **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three VMs) and
   Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI
   (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)
@@ -163,7 +166,9 @@ The chain is only visible across files:
 - Komodo Core runs on the `pbs` tailnet node at `https://pbs.tail9ef5e7.ts.net`
   (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
 - Live swarm `homelab`: 3 managers (komodo-srv-01..03) formed by `swarm.yml`; ingress
-  overlay migrated to 10.10.0.0/24; canary stack `whoami` publishes :8080 on all nodes.
+  overlay migrated to 10.10.0.0/24; `whoami` + `uptime-kuma` are routed by the
+  Traefik edge (`*.swarm.int.huisman.dev`; mesh + Host-routing proven 2026-09-16,
+  no published app ports since the TLS cutover).
 - Toolchain: OpenTofu v1.12.6, provider `bpg/proxmox` 0.113.1, ansible-core 2.21.4
   (Homebrew ansible 14.4.0), Python 3.14.
 - `tofu plan` with empty `var.vms` is clean; dynamic inventory degrades gracefully to an

@@ -2,9 +2,9 @@
 # Single replica with a named volume: swarm local volumes live on the node the task runs
 # on, so pin it to komodo-srv-01 -- if the task is ever rescheduled, it comes back with
 # its data instead of a blank slate on another node.
-# Routed by Traefik via deploy.labels; reachable on the proxy overlay as uptime-kuma:3001
-# (kuma's own monitor can use http://whoami -- cross-stack service DNS for free).
-# The published :8081 is a cutover fallback -- remove it in the TLS PR.
+# Routed by Traefik (Host() on websecure + shared le resolver); no published port.
+# kuma's own monitors can use http://whoami -- cross-stack service DNS over the
+# `proxy` overlay, which never touches Traefik's http->https redirect.
 services:
   uptime-kuma:
     image: louislam/uptime-kuma:2.5.4
@@ -12,8 +12,6 @@ services:
       - uptime-kuma-data:/app/data
     networks:
       - proxy
-    ports:
-      - "8081:3001"
     deploy:
       replicas: 1
       placement:
@@ -24,7 +22,9 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.uptime-kuma.rule=Host(`kuma.swarm.int.huisman.dev`)"
-        - "traefik.http.routers.uptime-kuma.entrypoints=web"
+        - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
+        - "traefik.http.routers.uptime-kuma.tls=true"
+        - "traefik.http.routers.uptime-kuma.tls.certresolver=le"
         - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
 
 networks:
