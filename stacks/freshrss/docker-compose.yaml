@@ -15,7 +15,8 @@
 #    inside it is expanded by the image's own `eval echo` at boot, pulling the
 #    value the wrapper exported -- so the password never appears in git. Keep
 #    the secret alphanumeric (eval + shell word-splitting); `openssl rand -hex`
-#    qualifies.
+#    qualifies. NOTE: install args only apply to the FIRST boot; changing them
+#    later needs a fresh volume (or `cli/reconfigure.php` by hand).
 #  * No account is created here: first real step is an admin user via the
 #    container's cli/create-user.php (Komodo terminal) -- keeps credentials
 #    out of git.
@@ -36,6 +37,15 @@ services:
       - -c
       - 'export DB_PASSWORD="$$(cat /run/secrets/freshrss_db_password)"; exec /var/www/FreshRSS/Docker/entrypoint.sh "$$@"'
       - sh
+    # GOTCHA (cost us a silent exit-0 crashloop): `docker stack deploy` does
+    # NOT append the image CMD when entrypoint is overridden -- Args came out
+    # empty, entrypoint.sh's final `exec "$@"` exec'd nothing. So redeclare
+    # the image's exact CMD here (from Docker/Dockerfile @ 1.30.0); it flows
+    # through the wrapper's "$@" into entrypoint.sh's final exec. All $ doubled.
+    command:
+      - /bin/sh
+      - -c
+      - '( [ -z "$$CRON_MIN" ] || cron ) && . /etc/apache2/envvars && exec apache2 -D FOREGROUND $$([ -n "$$OIDC_ENABLED" ] && [ "$$OIDC_ENABLED" -ne 0 ] && echo "-D OIDC_ENABLED")'
     environment:
       TZ: Europe/Amsterdam
       # refresh feeds at :04 and :34 (cron minutes, not the kuma kind)

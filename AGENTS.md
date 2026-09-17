@@ -65,7 +65,9 @@ App-with-database (see `stacks/freshrss/`): DB on a stack-local network only,
 volume-bearing services pinned to one node, swarm secret consumed via native
 `*_FILE` env or a `$$`-escaped sh wrapper (image entrypoints live under
 `/var/www/...`, not `/traefik`-style paths — inspect the real image before
-overriding).
+overriding; and when you DO override `entrypoint`, re-declare the image's CMD
+in `command:` — `docker stack deploy` drops the image CMD, which crashed
+freshrss in a silent exit-0 loop).
 
 ## Architecture
 
