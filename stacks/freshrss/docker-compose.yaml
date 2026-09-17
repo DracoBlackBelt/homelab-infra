@@ -4,7 +4,8 @@
 #    published port, no Traefik router: it is structurally unreachable from
 #    anything except FreshRSS itself.
 #  * FreshRSS data + Postgres data are named volumes, so BOTH services are
-#    pinned to komodo-srv-02 (the roomiest node at deploy time).
+#    pinned to swarm-wrk-03 (the data worker), keeping app tasks off the raft
+#    managers.
 #  * One swarm secret, two consumption patterns: Postgres natively supports
 #    _FILE (POSTGRES_PASSWORD_FILE), FreshRSS does not -- so its entrypoint
 #    is the proven sh wrapper that exports DB_PASSWORD from /run/secrets and
@@ -73,7 +74,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == komodo-srv-02
+          - node.hostname == swarm-wrk-03
       resources:
         limits:
           memory: 320M
@@ -118,7 +119,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == komodo-srv-02
+          - node.hostname == swarm-wrk-03
       resources:
         limits:
           memory: 256M

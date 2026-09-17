@@ -1,8 +1,8 @@
 # Edge router for the swarm: v3-native Swarm provider reads routing labels
 # off SERVICES (they live in each app's compose file under deploy.labels).
-# Steady state: client -> node :80 (ingress mesh) -> traefik (global, one task
-# per node) -> proxy overlay -> app:port; :80 308s to :443 and TLS is served
-# with a single Let's Encrypt wildcard cert (Cloudflare DNS-01).
+# Steady state: client -> any node :80 (ingress mesh) -> traefik (one task) ->
+# proxy overlay -> app:port; :80 308s to :443 and TLS is served with a single
+# Let's Encrypt wildcard cert (Cloudflare DNS-01).
 #
 # Secret plumbing: the Cloudflare token is created OUT of git (Komodo UI ->
 # swarm 'homelab' -> Secrets -> cloudflare_api_token) and referenced here by
@@ -79,16 +79,21 @@ services:
       retries: 3
       start_period: 10s
     deploy:
-      # global: one task per node, so the mesh never forwards to a node
-      # without an edge; node.role keeps future workers out (no cluster API).
-      mode: global
+      # replicated:1, deliberately NOT global. Only ONE task may run the ACME
+      # (DNS-01) resolver: multiple replicas race on the same Cloudflare TXT
+      # record because OSS Traefik has no shared-ACME storage (the v1 KV-store
+      # approach was dropped in 2.0; docs recommend an external cert controller
+      # for multi-replica, or Traefik Enterprise). The ingress mesh still
+      # accepts 80/443 on every node and forwards to this task, so any node IP
+      # remains a valid entry. node.role == manager keeps it on a manager, where
+      # the mounted docker.sock can reach the cluster API.
+      mode: replicated
+      replicas: 1
       placement:
         constraints:
           - node.role == manager
       restart_policy:
         condition: any
-      # Light, but it runs one task per node -- cap it so a leak can't take a
-      # manager down.
       resources:
         limits:
           memory: 128M
