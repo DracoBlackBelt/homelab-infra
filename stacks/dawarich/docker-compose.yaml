@@ -101,7 +101,10 @@ services:
       SELF_HOSTED: "true"
       STORE_GEODATA: "true"
       RAILS_LOG_TO_STDOUT: "true"
-      WEB_CONCURRENCY: "1"
+      # Puma single-mode (workers=0): a household instance doesn't need a
+      # cluster, and Puma warns that cluster mode with 1 worker is a
+      # misconfiguration that only adds memory overhead. Raise this to scale.
+      WEB_CONCURRENCY: "0"
     # The app force_ssl's plain HTTP to HTTPS, so a naive http probe gets a 301
     # and then fails trying TLS against plain-Puma ("Are you trying to open an
     # SSL connection to a non-SSL Puma?"). Send X-Forwarded-Proto: https (what
