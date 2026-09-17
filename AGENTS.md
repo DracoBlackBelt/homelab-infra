@@ -6,8 +6,9 @@ cloned from a hand-built golden template, and Ansible configures those VMs over 
 The connection plumbing is proven against the live host, and the guest-config chain
 (hardening -> tailscale -> docker -> swarm -> komodo periphery, `ansible/site.yml`) is defined here,
 along with the Komodo resources themselves (`komodo/*.toml`, synced from git by a
-ResourceSync). No VM *instances* live in git, though: `var.vms` defaults to `{}`; VMs
-are declared only in the gitignored `tofu/terraform.tfvars`.
+ResourceSync). VMs are declared in `tofu/terraform.tfvars`, which is **committed**
+(endpoint and addresses are not secrets, and the repo must be able to rebuild the
+VMs); the PVE API token is the only thing that stays out, exported as an env var.
 
 ## Commands
 
@@ -35,13 +36,19 @@ cd ansible && ansible-playbook docker.yml                             # Docker E
 cd ansible && ansible-playbook swarm.yml                              # converge the swarm (managers + workers)
 cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
 cd ansible && ansible-playbook secrets.yml                            # seed swarm secrets from SOPS (before deploying stacks)
+cd ansible && ansible-playbook template.yml                           # build the golden template (no-op if it exists)
+cd ansible && ansible-playbook template.yml -e template_rebuild=true  # destroy + rebuild it
 cd ansible && ansible-lint                                            # lint (brew install ansible-lint)
 ```
 
 Secrets live in SOPS-encrypted files under `group_vars/` (e.g.
 `vms/secrets.sops.yml`), decrypted as they load by the `community.sops` vars plugin
-(`vars_plugins_enabled` in `ansible.cfg`). The age private key stays outside the repo
-(`~/.config/sops/age/keys.txt`); edit with `sops ansible/group_vars/vms/secrets.sops.yml`.
+(`vars_plugins_enabled` in `ansible.cfg`). Private keys stay outside the repo, and
+`.sops.yaml` lists **two** recipients so losing one decryptor does not lose every
+secret: the workstation key (`~/.config/sops/age/keys.txt`) and an escrow key kept
+offline (`~/.config/sops/age/recovery-keys.txt`). Edit with
+`sops ansible/group_vars/vms/secrets.sops.yml`; after changing recipients, re-wrap
+with `sops updatekeys <file>`.
 
 Lint is `ansible-lint` (`ansible/.ansible-lint`, `moderate` profile). There is no unit-test
 suite, so `ansible/ping.yml` is still the closest thing to a test.
@@ -117,7 +124,13 @@ The chain is only visible across files:
   `scsi0` on `fastpool`, `scsi_hardware = "virtio-scsi-single"` and the cloud-init drive
   are all pinned in state. Changing any of these on 9000 requires a matching change in
   `vms.tf` — the correspondence is the table in `docs/golden-template.md`.
-- **Ansible inventory is a single dynamic script**, `ansible/inventory/tofu.py`. It shells
+- **Ansible inventory is two sources in `ansible/inventory/`**: the dynamic script
+  `tofu.py` for the VMs (below), and a static `prox.yml` adding the Proxmox host
+  itself as group `pve` — the one host OpenTofu does not create. `pve` is reached as
+  `root@prox.tail9ef5e7.ts.net` over the tailnet (root@10.0.0.2 rejects key auth;
+  the host's Tailscale SSH is what authorizes it), and `ansible/group_vars/pve.yml`
+  holds its settings (the template build today, the NFS export later).
+- **VM inventory is a single dynamic script**, `ansible/inventory/tofu.py`. It shells
   out to `tofu -chdir=tofu output -json` (state only, no Proxmox API calls, so VM power
   state is irrelevant) and serves the `vm_inventory` output from `vms.tf` as group `vms`
   with `ansible_host` + `ansible_user` hostvars. Addresses come from the config, not the
@@ -198,8 +211,10 @@ The chain is only visible across files:
   (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)
   and pushing is how Komodo resources change; the sync's webhook can run it on push.
   `[[variable]]`/secret material must NOT go in these files — synced TOML is plaintext git.
-  Stacks clone this repo via the `DracoBlackBelt` git account (read-only GitHub token,
-  registered in the Core UI; the name must match `git_account` in `komodo/stacks.toml`).
+  The repo is public, so Komodo clones it anonymously: no `git_account` or GitHub token
+  anywhere. The sync declares itself in `komodo/resource-sync.toml` — the one bootstrap
+  creation in the UI, whose name/repo/branch/path must match that file or a second sync
+  appears. `delete` is deliberately not enabled there; see the file for why.
 - **`ansible/komodo.yml`** installs the Komodo Periphery agent as a root systemd service
   (`komodo.yml` owns binary, unit, and config; template at `templates/periphery.config.toml.j2`).
   **Outbound mode:** the agent dials `komodo_core_address` (a ts.net/MagicDNS name in
@@ -237,14 +252,15 @@ The chain is only visible across files:
 
 ## Gotchas
 
-- `tofu/terraform.tfvars` (gitignored) holds the Proxmox endpoint and the `vms` map —
-  keep it that way; never commit state files or tfvars. The PVE API token is **not**
-  here: export `TF_VAR_pve_api_token` in the shell (or source from a gitignored env
-  file) before running tofu. A `validation` block fails plan with a clear message if
-  the variable is empty.
+- `tofu/terraform.tfvars` **is committed**: it holds the Proxmox endpoint and the `vms`
+  map, so a fresh clone can rebuild every VM. Only state files and `*.auto.tfvars`
+  stay ignored. The PVE API token is **not** here: export `TF_VAR_pve_api_token` in the
+  shell (or source from a gitignored env file) before running tofu. A `validation`
+  block fails plan with a clear message if the variable is empty.
 - After the golden template is sealed it must **never be booted again** (cloud-init would
-  re-bake an instance id); it can only be cloned. To change its contents, destroy 9000
-  and rebuild per `docs/golden-template.md`.
+  re-bake an instance id); it can only be cloned. To change its contents, rebuild it with
+  `cd ansible && ansible-playbook template.yml -e template_rebuild=true` — the play that
+  reproduces `docs/golden-template.md`.
 - `tofu/locals.tf` reads `~/.ssh/id_ed25519.pub` (cloud-init installs it for `debian` at
   first boot). If the workstation key changes, this is the only file that feeds it to
   new VMs.

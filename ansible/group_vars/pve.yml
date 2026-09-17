@@ -1,0 +1,39 @@
+# Settings for the Proxmox host itself (inventory group `pve`, one host: prox).
+#
+# The VMs are configured through tofu + the vms group; this is the one host that
+# is neither created nor cloned by this repo, but still gets configured by it
+# (template.yml builds the golden template there; storage.yml will own the NFS
+# export its ZFS pool backs).
+
+# --- golden template build (template.yml) -----------------------------------
+# Mirrors docs/golden-template.md. That doc is the "why" for each value --
+# notably the machine type/BIOS (the Debian image is UEFI) and the guest agent,
+# which is baked in precisely so clones answer on first boot.
+template_vm_id: 9000
+template_name: debian13-cloud-template
+template_datastore: fastpool
+template_bridge: vmbr0
+template_cores: 2
+template_memory: 2048
+
+# Throwaway address for the build only: the guest agent is what is being
+# installed, so there is no way to discover a DHCP lease yet. Cleared to `dhcp`
+# before sealing, because OpenTofu sets every clone's real address itself.
+template_build_address: 10.0.0.99
+template_build_cidr: /24
+template_gateway: 10.0.0.1
+
+template_image_dir: /var/lib/vz/template/iso
+template_image_file: debian-13-genericcloud-amd64.qcow2
+template_image_url: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
+template_checksums_url: https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS
+
+# Public key cloud-init installs for the build-time SSH session (controller
+# side; same key tofu/locals.tf feeds to clones). The sealed image drops it
+# again, so clones cannot inherit a key their own config never granted.
+template_ssh_public_key_path: ~/.ssh/id_ed25519.pub
+template_sshkeys_file: /root/.template-build-key.pub
+
+# Set true to destroy and rebuild an existing template: an already-sealed image
+# must never be booted, so changing its contents means rebuilding from scratch.
+template_rebuild: false

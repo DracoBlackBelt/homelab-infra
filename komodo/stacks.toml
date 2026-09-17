@@ -1,7 +1,7 @@
 # Stacks deployed to the 'homelab' swarm (swarms.toml). The compose files
-# live in this same repo under stacks/ -- Komodo clones homelab-infra via the
-# 'DracoBlackBelt' git account (register the read-only GitHub token in the
-# Core UI first) and runs `docker stack deploy`.
+# live in this same repo under stacks/ -- Komodo clones homelab-infra and runs
+# `docker stack deploy`. The repo is public, so no `git_account` is needed:
+# Komodo clones it anonymously and no GitHub token is registered in Core.
 #
 # deploy = true means: running the ResourceSync also deploys the stack.
 #
@@ -18,9 +18,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/whoami/docker-compose.yaml"]
 
@@ -32,9 +31,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
 
@@ -46,9 +44,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/traefik/docker-compose.yaml"]
 
@@ -60,9 +57,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/freshrss/docker-compose.yaml"]
 
@@ -74,9 +70,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/searxng/docker-compose.yaml"]
 
@@ -88,9 +83,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/flame/docker-compose.yaml"]
 
@@ -102,9 +96,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/web-check/docker-compose.yaml"]
 
@@ -116,9 +109,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/forgejo/docker-compose.yaml"]
 
@@ -130,9 +122,8 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/vaultwarden/docker-compose.yaml"]
 
@@ -144,8 +135,7 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-git_provider = "github.com"
-git_account = "DracoBlackBelt"
-repo = "DracoBlackBelt/homelab-infra"
+      git_provider = "github.com"
+      repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/dawarich/docker-compose.yaml"]

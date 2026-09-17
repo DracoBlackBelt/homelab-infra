@@ -3,6 +3,8 @@
 #
 # ansible.utils    -- swarm.yml's ingress/LAN overlap check (`in_network`),
 #                     CIDR math that pure Jinja cannot express.
+# ansible.posix    -- `mount`, for putting a filesystem in fstab and mounting it
+#                     idempotently (ansible-core has no mount module).
 # community.sops   -- decrypts the *.sops.yml secrets in group_vars as they load
 #                     (vars plugin), so the age key stays out of git.
 #
@@ -14,5 +16,7 @@
 collections:
   - name: ansible.utils
     version: "6.1.1"
+  - name: ansible.posix
+    version: "2.2.2"
   - name: community.sops
     version: "2.4.0"

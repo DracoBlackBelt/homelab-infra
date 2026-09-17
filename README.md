@@ -17,7 +17,8 @@ A `traefik` edge stack (deployed through the same loop) routes apps by hostname
 under `*.swarm.huisman.dev`.
 
 The *instances* are not in git: `var.vms` defaults to `{}` and real VMs are
-declared only in the gitignored `tofu/terraform.tfvars`. The old all-in-one
+declared in `tofu/terraform.tfvars`, which is committed (endpoint and IPs are
+not secrets — the repo has to be able to rebuild the VMs). The old all-in-one
 Docker/Dockge/Watchtower `setup.yml` lives in git history only
 (`git show bafa092:ansible/setup.yml`); its parts were rebuilt deliberately as
 separate plays.
@@ -28,9 +29,11 @@ separate plays.
 | ----------------------------- | ---------------------------------------------------- |
 | `tofu/`                       | OpenTofu config; local state in `tofu/terraform.tfstate` |
 | `tofu/vms.tf`                 | VM schema (`var.vms`) + clone resource + inventory output |
-| `tofu/terraform.tfvars`       | gitignored: endpoint + **where you declare VMs** (token is env) |
+| `tofu/terraform.tfvars`       | committed: endpoint + **where you declare VMs** (token is env) |
 | `docs/golden-template.md`     | spec for building/sealing template vmid 9000         |
+| `ansible/template.yml`        | builds that template (the doc explains why)          |
 | `ansible/inventory/tofu.py`   | dynamic inventory: reads `tofu output -json`         |
+| `ansible/inventory/prox.yml`  | static inventory: the Proxmox host itself (group `pve`) |
 | `ansible/ping.yml`            | smoke test for the full chain                        |
 | `ansible/site.yml`            | provisioning chain: hardening → tailscale → docker → swarm → komodo |
 | `ansible/{hardening,tailscale,docker,swarm,komodo}.yml` | the five links, each also runnable standalone |
@@ -91,8 +94,7 @@ Everything is driven by git: edit, push, sync, deploy.
    [stack.config]
    swarm = "homelab"
    git_provider = "github.com"
-   git_account = "DracoBlackBelt"
-   repo = "DracoBlackBelt/homelab-infra"
+   repo = "DracoBlackBelt/homelab-infra"   # public, so no git_account
    branch = "main"
    file_paths = ["stacks/immich/docker-compose.yaml"]  # several files merge like docker compose -f -f
    ```
@@ -165,9 +167,13 @@ sh-wrapper env export (compose `$$` escaping!) when an app only reads env; if
 the wrapper overrides `entrypoint`, re-declare the image CMD in `command:` —
 stack deploy drops it; set `deploy.resources.limits` — the nodes are small.
 
-One-time setup that makes this loop exist (already done): a read-only GitHub
-token registered in Komodo as git account `DracoBlackBelt`, and the single
-`ResourceSync` pointing at this repo's `komodo/` directory.
+One-time setup that makes this loop exist: the repo is **public**, so Komodo
+clones it anonymously — there is no GitHub token or git account in Core — and a
+single `ResourceSync` points at this repo's `komodo/` directory. That sync is
+declared as code in `komodo/resource-sync.toml`, so a fresh Core needs it
+created by hand exactly once (same name, repo, branch and path), after which it
+maintains itself; see that file for the bootstrap and for why `delete = true`
+is deliberately left off.
 
 ## Deployed apps
 
@@ -194,13 +200,18 @@ authoritative list.
 
 - The PVE API token comes from `TF_VAR_pve_api_token` in the environment, never
   from `terraform.tfvars`; a variable `validation` fails `tofu plan` if it is unset.
-- Secrets are SOPS/age-encrypted in `ansible/group_vars/vms/secrets.sops.yml`; the age
-  private key lives outside the repo (`~/.config/sops/age/keys.txt`). Edit with
-  `sops ansible/group_vars/vms/secrets.sops.yml`.
+- Secrets are SOPS/age-encrypted in `ansible/group_vars/vms/secrets.sops.yml` with
+  **two** age recipients (`.sops.yaml`): the workstation key
+  (`~/.config/sops/age/keys.txt`) and an escrow key kept offline
+  (`~/.config/sops/age/recovery-keys.txt`) — losing every decryptor would lose every
+  secret. Edit with `sops ansible/group_vars/vms/secrets.sops.yml`; after changing
+  recipients, re-wrap the existing files with `sops updatekeys <file>`.
 - VM disks must be >= 16 GiB (the template's disk size; Proxmox cannot shrink
   a cloned volume).
 - After sealing, template 9000 is never booted again — to change its contents,
-  destroy and rebuild it per `docs/golden-template.md`.
+  rebuild it: `cd ansible && ansible-playbook template.yml -e template_rebuild=true`.
+  The play reproduces `docs/golden-template.md`, which remains the explanation of
+  why each step is what it is.
 - Guest config is rebuilt deliberately, as one small play per concern
   (tailscale.yml, docker.yml, swarm.yml, komodo.yml). Extend it the same way — new plays,
   roles, or something like Dockge — rather than resurrecting `setup.yml`.

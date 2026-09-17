@@ -1,9 +1,18 @@
-# SOPS creation rules: which key encrypts which files.
+# SOPS creation rules: which age keys can decrypt which files.
 #
-# The age PRIVATE key never lives in the repo -- it stays at
-# ~/.config/sops/age/keys.txt (or $SOPS_AGE_KEY_FILE) on the machine running
-# Ansible, so only this public recipient is committed. New secrets:
-#   sops ansible/group_vars/vms/secrets.sops.yml   # creates/edits in place
+# Both PRIVATE keys stay outside the repo, so only public recipients are
+# committed:
+#   * the workstation key  -> ~/.config/sops/age/keys.txt (or $SOPS_AGE_KEY_FILE)
+#   * the escrow key       -> ~/.config/sops/age/recovery-keys.txt, kept OFFLINE
+#
+# Two recipients because losing every decryptor means losing every secret. Either
+# key alone decrypts, so Ansible needs only the workstation one while the escrow
+# key can sit in a safe. Changing this list needs the existing files re-wrapped:
+#   sops updatekeys ansible/group_vars/vms/secrets.sops.yml
+#
+# New secrets:  sops ansible/group_vars/vms/secrets.sops.yml   # creates/edits in place
 creation_rules:
   - path_regex: '\.sops\.ya?ml$'
-    age: age12f27dnat4w09xcad3wrwxj0e84zgd5vupwc996gw4u42tdjaas6qj5yu7m
+    age:
+      - age12f27dnat4w09xcad3wrwxj0e84zgd5vupwc996gw4u42tdjaas6qj5yu7m # workstation
+      - age1pfdamnetdjntyxdcrmlmlg4xealmf7urhuxdt7g3mvrpxjy6kfpqumf6na # escrow

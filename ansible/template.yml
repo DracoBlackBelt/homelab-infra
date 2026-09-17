@@ -1,0 +1,271 @@
+# Build the golden template (vmid 9000) that tofu/vms.tf clones every VM from.
+#
+# Why this is a play and not an OpenTofu resource: baking software into a disk
+# means booting a guest and running apt, which OpenTofu cannot express. See
+# docs/golden-template.md -- it remains the explanation of *why* each step is
+# the way it is (the udev/agent subtlety, the UEFI machine type), while this
+# play is the reproduction of it.
+#
+# Runs against the Proxmox host itself (inventory group `pve`), not the VMs.
+# The guest half runs over SSH against a throwaway address, because the guest
+# agent is exactly what is being installed and so cannot be used to drive it.
+#
+# Usage:
+#   cd ansible && ansible-playbook template.yml
+#   cd ansible && ansible-playbook template.yml -e template_rebuild=true
+#
+# Safety: if the vmid already holds a *template* this is a no-op unless
+# template_rebuild is set; if it holds a non-template it refuses to touch it
+# (that is either a half-finished build or a real VM) and tells you to destroy
+# it deliberately. A sealed template must never be booted again -- cloud-init
+# would re-bake an instance id and every clone would inherit it.
+#
+# A build that fails part-way leaves the VM in place (never auto-destroyed);
+# clear it with `qm destroy 9000 --purge` and re-run.
+
+- name: Build the golden template (Proxmox side)
+  hosts: pve
+  gather_facts: false
+
+  tasks:
+    - name: Confirm the Proxmox CLI is present
+      ansible.builtin.stat:
+        path: /usr/sbin/qm
+      register: template_qm_cli
+
+    - name: Fail if this host is not Proxmox VE
+      ansible.builtin.assert:
+        that: template_qm_cli.stat.exists
+        quiet: true
+        fail_msg: "{{ inventory_hostname }} has no /usr/sbin/qm -- not a Proxmox VE host."
+
+    - name: Look up the target vmid
+      ansible.builtin.command: qm config {{ template_vm_id }}
+      register: template_config
+      changed_when: false
+      failed_when: false
+
+    - name: Decide whether the template already exists
+      ansible.builtin.set_fact:
+        template_present: "{{ template_config.rc == 0 }}"
+        template_is_template: >-
+          {{ template_config.rc == 0
+             and (template_config.stdout is search('(?m)^template:\s*1')) }}
+
+    - name: Decide whether this run has to build
+      ansible.builtin.set_fact:
+        template_build_needed: >-
+          {{ (not (template_is_template | bool)) or (template_rebuild | bool) }}
+
+    - name: Refuse to touch a vmid that holds something other than a template
+      ansible.builtin.assert:
+        that: >-
+          (not (template_present | bool))
+          or (template_is_template | bool)
+          or (template_rebuild | bool)
+        quiet: true
+        fail_msg: >-
+          vmid {{ template_vm_id }} exists but is not a template. It is either
+          a half-finished build or a real VM, so destroy it deliberately
+          (`qm destroy {{ template_vm_id }} --purge`) or re-run with
+          -e template_rebuild=true.
+
+    - name: Destroy the existing template (rebuild requested)
+      ansible.builtin.command: qm destroy {{ template_vm_id }} --purge
+      when: (template_present | bool) and (template_rebuild | bool)
+
+    - name: Make sure the ISO directory exists
+      ansible.builtin.file:
+        path: "{{ template_image_dir }}"
+        state: directory
+        mode: "0755"
+      when: template_build_needed | bool
+
+    # ~600 MB, verified against the publisher's SHA512SUMS. get_url fetches the
+    # sums file itself and looks the right line up, so this stays correct when
+    # Debian repoints `latest`.
+    - name: Download the Debian 13 genericcloud image
+      ansible.builtin.get_url:
+        url: "{{ template_image_url }}"
+        dest: "{{ template_image_dir }}/{{ template_image_file }}"
+        checksum: "sha512:{{ template_checksums_url }}"
+        mode: "0644"
+      when: template_build_needed | bool
+
+    - name: Create the build VM
+      ansible.builtin.command: >-
+        qm create {{ template_vm_id }}
+        --name {{ template_name }}
+        --ostype l26
+        --machine q35
+        --bios ovmf
+        --cpu host
+        --cores {{ template_cores }}
+        --memory {{ template_memory }}
+        --scsihw virtio-scsi-single
+        --net0 virtio,bridge={{ template_bridge }}
+        --serial0 socket
+        --vga serial0
+        --agent enabled=1,fstrim_cloned_disks=1
+      when: template_build_needed | bool
+
+    - name: Attach the EFI vars disk (OVMF requires one)
+      ansible.builtin.command: >-
+        qm set {{ template_vm_id }}
+        --efidisk0 {{ template_datastore }}:0,efitype=4m,pre-enrolled-keys=0
+      when: template_build_needed | bool
+
+    # import-from lays the cloud image down as scsi0. discard lets a clone
+    # fstrim blocks back to the ZFS pool (what agent trim=1 and the template's
+    # fstrim_cloned_disks=1 act on); ssd only tells the guest it is not a spindle.
+    - name: Import the cloud image as scsi0
+      ansible.builtin.command: >-
+        qm set {{ template_vm_id }}
+        --scsi0 {{ template_datastore }}:0,discard=on,iothread=1,ssd=1,import-from={{ template_image_dir }}/{{ template_image_file }}
+      when: template_build_needed | bool
+
+    # Without the explicit boot order the cloud-init drive is a viable boot target.
+    - name: Attach the cloud-init drive and pin the boot order
+      ansible.builtin.command: >-
+        qm set {{ template_vm_id }}
+        --ide2 {{ template_datastore }}:cloudinit
+        --boot order=scsi0
+      when: template_build_needed | bool
+
+    # The controller's own public key, not the host's authorized_keys: this host
+    # is reached over Tailscale SSH, which does not populate that file, and the
+    # key tofu installs on clones is the one that must work here too.
+    - name: Stage the build-time public key on the host
+      ansible.builtin.copy:
+        content: "{{ lookup('ansible.builtin.file', template_ssh_public_key_path) }}\n"
+        dest: "{{ template_sshkeys_file }}"
+        mode: "0600"
+      when: template_build_needed | bool
+
+    - name: Point cloud-init at the throwaway address and the build key
+      ansible.builtin.command: >-
+        qm set {{ template_vm_id }}
+        --ipconfig0 ip={{ template_build_address }}{{ template_build_cidr }},gw={{ template_gateway }}
+        --ciuser debian
+        --sshkeys {{ template_sshkeys_file }}
+      when: template_build_needed | bool
+
+    - name: Record where the template's spec lives
+      ansible.builtin.command: >-
+        qm set {{ template_vm_id }} --description "Golden template - see docs/golden-template.md"
+      when: template_build_needed | bool
+
+    - name: Start the builder
+      ansible.builtin.command: qm start {{ template_vm_id }}
+      when: template_build_needed | bool
+
+    # From the controller, because that is the path the guest half will use.
+    - name: Wait for cloud-init to bring SSH up
+      ansible.builtin.wait_for:
+        host: "{{ template_build_address }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      delegate_to: localhost
+      when: template_build_needed | bool
+
+    - name: Hand the builder to the guest-side play
+      ansible.builtin.add_host:
+        name: template-builder
+        groups: template_builder
+        ansible_host: "{{ template_build_address }}"
+        ansible_user: debian
+      when: template_build_needed | bool
+
+# Skipped entirely on a no-op run (nothing was added to the group, so Ansible
+# reports "no hosts matched" rather than doing anything).
+- name: Build the golden template (guest side)
+  hosts: template_builder
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Wait for cloud-init to finish configuring the guest
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    - name: Install the QEMU guest agent
+      ansible.builtin.apt:
+        name: qemu-guest-agent
+        state: present
+        update_cache: true
+
+    # Required, and `systemctl is-active` right after the install is NOT a valid
+    # check: the unit is static (no [Install]) and is started by a udev rule when
+    # the virtio port appears. Installing after boot leaves that rule untriggered
+    # against an already-present device, so the reboot is what makes it real.
+    - name: Reboot so the agent's udev rule fires against the virtio port
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+
+    - name: The agent must be active after the reboot
+      ansible.builtin.command: systemctl is-active qemu-guest-agent
+      register: template_guest_agent
+      changed_when: false
+      until: template_guest_agent.stdout | trim == 'active'
+      retries: 12
+      delay: 5
+
+    # Not optional: skipping this gives every clone the same machine-id and a
+    # cloud-init that believes it has already run, so clones silently ignore
+    # their own hostname, SSH key and network config.
+    - name: Clear cloud-init state
+      ansible.builtin.command: cloud-init clean --logs
+
+    - name: Reset the machine-id
+      ansible.builtin.command: truncate -s 0 /etc/machine-id
+
+    # Leaves cloud-init as the only source of SSH keys for clones.
+    - name: Drop the build-time authorized_keys
+      ansible.builtin.file:
+        path: /home/debian/.ssh/authorized_keys
+        state: absent
+
+- name: Build the golden template (seal)
+  hosts: pve
+  gather_facts: false
+
+  tasks:
+    # Shut down from the host rather than `poweroff` inside the guest: the
+    # connection would die mid-task from the guest side. Graceful, so the
+    # filesystem is consistent.
+    - name: Shut the builder down
+      ansible.builtin.command: qm shutdown {{ template_vm_id }} --timeout 120
+      when: template_build_needed | bool
+
+    - name: Wait for it to be stopped
+      ansible.builtin.command: qm status {{ template_vm_id }}
+      register: template_builder_status
+      until: template_builder_status.stdout is search('stopped')
+      retries: 24
+      delay: 5
+      changed_when: false
+      when: template_build_needed | bool
+
+    # Drop the build address: OpenTofu sets every clone's real address itself.
+    - name: Clear the throwaway address
+      ansible.builtin.command: qm set {{ template_vm_id }} --ipconfig0 ip=dhcp
+      when: template_build_needed | bool
+
+    - name: Mark the VM as a template
+      ansible.builtin.command: qm template {{ template_vm_id }}
+      when: template_build_needed | bool
+
+    - name: Remove the staged build key from the host
+      ansible.builtin.file:
+        path: "{{ template_sshkeys_file }}"
+        state: absent
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ ('Built and sealed template ' ~ template_vm_id ~ ' (' ~ template_name ~ ').'
+              ~ ' Next: tofu -chdir=tofu apply')
+             if (template_build_needed | bool)
+             else ('Template ' ~ template_vm_id ~ ' already exists; nothing to do.'
+                   ~ ' Rebuild with -e template_rebuild=true') }}

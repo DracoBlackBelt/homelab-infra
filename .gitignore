@@ -1,7 +1,11 @@
 *.tfstate
 *.tfstate.*
 .terraform/
-terraform.tfvars
+
+# tofu/terraform.tfvars IS committed: it holds the endpoint and the VM
+# inventory, which are not secrets -- the repo must be able to recreate the
+# VMs. The API token never lives there (env-only, TF_VAR_pve_api_token), and
+# *.auto.tfvars stays ignored as the local-override escape hatch.
 *.auto.tfvars
 ansible/inventory/*.cache
 ansible/.ansible/
