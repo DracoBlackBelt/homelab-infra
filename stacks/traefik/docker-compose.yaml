@@ -67,10 +67,11 @@ services:
       # Serves /ping on the internal `traefik` entrypoint (:8080, not
       # published); v3 auto-creates that entrypoint when ping is enabled.
       - --ping=true
-    # Swarm ignores the image's own HEALTHCHECK, so declare it here.
+    # Declared explicitly so it is visible in the stack file.
     # `traefik healthcheck --ping` recreates the internal entrypoint itself and
-    # HEADs it -- no other flag needed. Swarm surfaces health but does NOT
-    # restart an unhealthy task; this is for status and rolling updates.
+    # HEADs it -- no other flag needed. Note Swarm *replaces* a task whose
+    # container reports unhealthy, so a broken health command becomes a restart
+    # loop (see the web-check pilot) -- it must be a real check.
     healthcheck:
       test: ['CMD', 'traefik', 'healthcheck', '--ping']
       interval: 10s
