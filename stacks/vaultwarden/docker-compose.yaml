@@ -1,0 +1,67 @@
+# Vaultwarden (Bitwarden-compatible server). Routed by Traefik (Host on
+# websecure + shared le resolver); no published port. Websockets are served on
+# the same port as HTTP by current versions, so no second port is needed.
+#
+# ADMIN_TOKEN comes from the swarm secret `vaultwarden_admin_token` (seeded by
+# ansible/secrets.yml from SOPS) and enables /admin. The image's CMD is
+# /start.sh, so the wrapper (which overrides the entrypoint) execs it directly.
+#
+# FIRST RUN: signups are open so you can create your account, then set
+# SIGNUPS_ALLOWED=false (and re-sync) -- or invite from /admin. Data is a
+# node-local volume, so it is pinned to one node.
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.37.3
+    networks:
+      - proxy
+    secrets:
+      - vaultwarden_admin_token
+    volumes:
+      - vaultwarden-data:/data
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export ADMIN_TOKEN="$$(cat /run/secrets/vaultwarden_admin_token)"; exec /start.sh'
+      - sh
+    environment:
+      TZ: Europe/Amsterdam
+      DOMAIN: https://vault.swarm.huisman.dev
+      SIGNUPS_ALLOWED: "true"
+    healthcheck:
+      test: ['CMD', '/healthcheck.sh']
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-03
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.vaultwarden.rule=Host(`vault.swarm.huisman.dev`)"
+        - "traefik.http.routers.vaultwarden.entrypoints=websecure"
+        - "traefik.http.routers.vaultwarden.tls=true"
+        - "traefik.http.routers.vaultwarden.tls.certresolver=le"
+        - "traefik.http.routers.vaultwarden.tls.domains[0].main=*.swarm.huisman.dev"
+        - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+
+secrets:
+  vaultwarden_admin_token:
+    external: true
+
+volumes:
+  vaultwarden-data:

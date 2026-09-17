@@ -117,3 +117,31 @@ git_account = "DracoBlackBelt"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/forgejo/docker-compose.yaml"]
+
+[[stack]]
+name = "vaultwarden"
+description = "Bitwarden-compatible password server (vaultwarden_admin_token; pinned to swarm-wrk-03)"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/vaultwarden/docker-compose.yaml"]
+
+[[stack]]
+name = "grav"
+description = "Flat-file CMS; pinned to swarm-wrk-02"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/grav/docker-compose.yaml"]
