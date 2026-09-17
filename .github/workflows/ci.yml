@@ -22,9 +22,9 @@ jobs:
     name: tofu fmt + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: "1.12.6"
           tofu_wrapper: false
@@ -46,9 +46,9 @@ jobs:
     name: ansible-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -73,7 +73,7 @@ jobs:
     name: swarm stack config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `docker stack config` parses and merges exactly like `docker stack
       # deploy`, so it catches the class of bug that reaches the swarm
@@ -97,7 +97,7 @@ jobs:
     name: stack declarations
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Catches the two drift bugs we have actually hit: a stacks/<app>/ dir
       # with no [[stack]] block (never deploys), and a [[stack]] block whose
