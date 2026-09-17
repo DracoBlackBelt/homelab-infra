@@ -1,7 +1,11 @@
 # Komodo resources as code. This whole directory is synced by ONE bootstrap
-# ResourceSync created in the Core UI (repo homelab-infra, path komodo/);
-# after that, every Komodo object here is diffed/created/updated from git --
-# UI shows the computed actions, or the sync webhook runs them on push.
+# ResourceSync created in the Core UI -- name "homelab-infra", repo
+# DracoBlackBelt/homelab-infra, branch main, path komodo/. It is the one object
+# deliberately NOT declared here: Komodo refuses to update a ResourceSync while
+# it is running ("ResourceSync busy"), so a self-declaration could never apply
+# and it fails the rest of the run. Every other object here is
+# diffed/created/updated from git; the UI shows the computed actions, or the
+# sync webhook runs them on push.
 #
 # Rule: nothing secret in these files. Synced TOML is plaintext in git, so
 # credentials stay out (Komodo secrets/variables, or Swarm secrets).

@@ -168,12 +168,24 @@ the wrapper overrides `entrypoint`, re-declare the image CMD in `command:` —
 stack deploy drops it; set `deploy.resources.limits` — the nodes are small.
 
 One-time setup that makes this loop exist: the repo is **public**, so Komodo
-clones it anonymously — there is no GitHub token or git account in Core — and a
-single `ResourceSync` points at this repo's `komodo/` directory. That sync is
-declared as code in `komodo/resource-sync.toml`, so a fresh Core needs it
-created by hand exactly once (same name, repo, branch and path), after which it
-maintains itself; see that file for the bootstrap and for why `delete = true`
-is deliberately left off.
+clones it anonymously — no GitHub token or git account in Core — and a single
+`ResourceSync` points at this repo's `komodo/` directory:
+
+```text
+name "homelab-infra" · repo DracoBlackBelt/homelab-infra · branch main · path komodo/
+```
+
+That sync is the **one object deliberately not declared in `komodo/`** — and it
+cannot be. Komodo refuses to update a `ResourceSync` while that sync is running
+(`failed to update config on ResourceSync 'homelab-infra' | ResourceSync busy`),
+so a self-declaration can never apply and it fails the rest of the run. It stays
+a one-time creation in the UI.
+
+Two settings in that sync are deliberate: `delete` stays **off** because it is
+scoped to the resource *types* the sync knows about, and Komodo auto-creates a
+Server per Periphery agent — enabling it blind can delete the platform out from
+under the sync. Deletions therefore stay confirmation-gated (see "Adding an
+app"). `git_account` stays empty now that the repo is public.
 
 ## Deployed apps
 

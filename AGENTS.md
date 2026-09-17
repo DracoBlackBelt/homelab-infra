@@ -212,9 +212,12 @@ The chain is only visible across files:
   and pushing is how Komodo resources change; the sync's webhook can run it on push.
   `[[variable]]`/secret material must NOT go in these files — synced TOML is plaintext git.
   The repo is public, so Komodo clones it anonymously: no `git_account` or GitHub token
-  anywhere. The sync declares itself in `komodo/resource-sync.toml` — the one bootstrap
-  creation in the UI, whose name/repo/branch/path must match that file or a second sync
-  appears. `delete` is deliberately not enabled there; see the file for why.
+  anywhere. The `ResourceSync` itself is the ONE object deliberately not declared here --
+  it cannot be, because Komodo refuses to update a ResourceSync while that sync is running
+  (`ResourceSync busy`), so a self-declaration never applies and fails the whole run. It
+  stays a one-time UI creation (name `homelab-infra`, repo, branch `main`, path `komodo/`).
+  Its `delete` stays off: it is scoped to resource types Komodo also auto-creates (a Server
+  per Periphery agent), so enabling it blind can delete the platform.
 - **`ansible/komodo.yml`** installs the Komodo Periphery agent as a root systemd service
   (`komodo.yml` owns binary, unit, and config; template at `templates/periphery.config.toml.j2`).
   **Outbound mode:** the agent dials `komodo_core_address` (a ts.net/MagicDNS name in
