@@ -21,7 +21,7 @@ services:
       - sh
     environment:
       TZ: Europe/Amsterdam
-      SEARXNG_BASE_URL: https://searxng.swarm.huisman.dev/
+      SEARXNG_BASE_URL: https://search.swarm.huisman.dev/
     healthcheck:
       test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8080/ || exit 1']
       interval: 30s
@@ -42,7 +42,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.searxng.rule=Host(`searxng.swarm.huisman.dev`)"
+        - "traefik.http.routers.searxng.rule=Host(`search.swarm.huisman.dev`)"
         - "traefik.http.routers.searxng.entrypoints=websecure"
         - "traefik.http.routers.searxng.tls=true"
         - "traefik.http.routers.searxng.tls.certresolver=le"

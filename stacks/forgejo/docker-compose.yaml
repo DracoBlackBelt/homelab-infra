@@ -21,8 +21,8 @@ services:
       TZ: Europe/Amsterdam
       USER_UID: "1000"
       USER_GID: "1000"
-      FORGEJO__server__DOMAIN: forgejo.swarm.huisman.dev
-      FORGEJO__server__ROOT_URL: https://forgejo.swarm.huisman.dev/
+      FORGEJO__server__DOMAIN: git.swarm.huisman.dev
+      FORGEJO__server__ROOT_URL: https://git.swarm.huisman.dev/
       FORGEJO__server__HTTP_PORT: "3000"
       FORGEJO__server__DISABLE_SSH: "true"
       FORGEJO__server__START_SSH_SERVER: "false"
@@ -48,7 +48,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.forgejo.rule=Host(`forgejo.swarm.huisman.dev`)"
+        - "traefik.http.routers.forgejo.rule=Host(`git.swarm.huisman.dev`)"
         - "traefik.http.routers.forgejo.entrypoints=websecure"
         - "traefik.http.routers.forgejo.tls=true"
         - "traefik.http.routers.forgejo.tls.certresolver=le"

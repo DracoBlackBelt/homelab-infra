@@ -95,7 +95,7 @@ services:
       DATABASE_PORT: "5432"
       DATABASE_USERNAME: postgres
       DATABASE_NAME: dawarich_production
-      APPLICATION_HOSTS: dawarich.swarm.huisman.dev
+      APPLICATION_HOSTS: timeline.swarm.huisman.dev
       APPLICATION_PROTOCOL: https
       TIME_ZONE: Europe/Amsterdam
       SELF_HOSTED: "true"
@@ -129,7 +129,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.dawarich.rule=Host(`dawarich.swarm.huisman.dev`)"
+        - "traefik.http.routers.dawarich.rule=Host(`timeline.swarm.huisman.dev`)"
         - "traefik.http.routers.dawarich.entrypoints=websecure"
         - "traefik.http.routers.dawarich.tls=true"
         - "traefik.http.routers.dawarich.tls.certresolver=le"
@@ -160,7 +160,7 @@ services:
       DATABASE_PORT: "5432"
       DATABASE_USERNAME: postgres
       DATABASE_NAME: dawarich_production
-      APPLICATION_HOSTS: dawarich.swarm.huisman.dev
+      APPLICATION_HOSTS: timeline.swarm.huisman.dev
       APPLICATION_PROTOCOL: https
       TIME_ZONE: Europe/Amsterdam
       SELF_HOSTED: "true"

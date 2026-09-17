@@ -27,7 +27,7 @@ services:
       - 'chown -R node /app/data && node server.js'
     environment:
       TZ: Europe/Amsterdam
-      BASE_URL: https://flame.swarm.huisman.dev
+      BASE_URL: https://home.swarm.huisman.dev
       PUID: "1000"
       PGID: "1000"
     healthcheck:
@@ -50,7 +50,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.flame.rule=Host(`flame.swarm.huisman.dev`)"
+        - "traefik.http.routers.flame.rule=Host(`home.swarm.huisman.dev`)"
         - "traefik.http.routers.flame.entrypoints=websecure"
         - "traefik.http.routers.flame.tls=true"
         - "traefik.http.routers.flame.tls.certresolver=le"
