@@ -5,3 +5,10 @@ terraform.tfvars
 *.auto.tfvars
 ansible/inventory/*.cache
 ansible/.ansible/
+
+# Saved plans are binary and can embed sensitive values: never commit them.
+*.tfplan
+
+# Editor / OS noise.
+.DS_Store
+

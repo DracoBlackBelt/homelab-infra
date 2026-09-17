@@ -3,8 +3,12 @@
 # 'DracoBlackBelt' git account (register the read-only GitHub token in the
 # Core UI first) and runs `docker stack deploy`.
 #
-# deploy = true means: running the ResourceSync also (re)deploys the stack
-# when its files or config changed. Edit stacks/<app>/*, push, sync -> roll.
+# deploy = true means: running the ResourceSync also deploys the stack.
+#
+# Caveat: the sync re-deploys when this TOML changes, NOT when a referenced
+# compose file changes (Komodo #1120 / #1381). A compose-only edit therefore
+# needs an explicit Deploy in the UI. Deleting a stack here is likewise a
+# confirmation-gated action, not automatic.
 
 [[stack]]
 name = "whoami"
@@ -22,7 +26,7 @@ file_paths = ["stacks/whoami/docker-compose.yaml"]
 
 [[stack]]
 name = "uptime-kuma"
-description = "Uptime monitoring webui (first real app; stateful volume pinned to komodo-srv-01)"
+description = "Uptime monitoring webui (stateful sqlite volume pinned to swarm-wrk-01)"
 tags = ["swarm", "app"]
 deploy = true
 
@@ -36,7 +40,7 @@ file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
 
 [[stack]]
 name = "traefik"
-description = "Edge router: swarm provider + Host() routing on websecure (:443, TLS), global on all managers"
+description = "Edge router: swarm provider + Host() routing on websecure (:443, TLS), replicated:1 on a manager"
 tags = ["swarm", "infra"]
 deploy = true
 
@@ -50,7 +54,7 @@ file_paths = ["stacks/traefik/docker-compose.yaml"]
 
 [[stack]]
 name = "freshrss"
-description = "RSS reader + its Postgres (db on a stack-local network only; pinned to komodo-srv-02)"
+description = "RSS reader + its Postgres (db on a stack-local network only; pinned to swarm-wrk-03)"
 tags = ["swarm", "app"]
 deploy = true
 

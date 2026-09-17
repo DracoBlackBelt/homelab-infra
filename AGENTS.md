@@ -45,6 +45,11 @@ Secrets live in SOPS-encrypted files under `group_vars/` (e.g.
 
 Lint is `ansible-lint` (`ansible/.ansible-lint`, `moderate` profile). There is no unit-test
 suite, so `ansible/ping.yml` is still the closest thing to a test.
+
+`make ci` (see `make help`) runs the whole local check set: `tofu fmt -check` + `validate`,
+`ansible-lint`, `docker stack config` over every stack, and a stacks/ ↔ `komodo/stacks.toml`
+consistency check. The same set runs in GitHub Actions (`.github/workflows/ci.yml`) on
+push/PR; none of it contacts the live hosts, so it needs no token or age key.
 `requirements.yml` pins two collections: `ansible.utils` (`swarm.yml`'s ingress/LAN overlap
 check uses its `in_network` test — CIDR math Jinja cannot express) and `community.sops`
 (the vars plugin that decrypts the `*.sops.yml` secrets), so the install step is required,
@@ -66,8 +71,11 @@ enforced by a `lifecycle.precondition`.
 **Adding an app:** `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, pinned
 image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
 `swarm = "homelab"` with `deploy = true`, then push — the ResourceSync diffs and
-(re)deploys. One stack per app; secrets never enter synced TOMLs (see the
-komodo/*.toml architecture bullet and the README's "Adding an app" section). An app
+applies on confirmation. It re-deploys when the **TOML** changes, not when a referenced
+compose file changes (Komodo #1120 / #1381), so a compose-only edit needs an explicit
+Deploy in the UI. Deletes are likewise confirmation-gated, not automatic. One stack per
+app; secrets never enter synced TOMLs (see the komodo/*.toml architecture bullet and the
+README's "Adding an app" section). An app
 needing a secret gets it into `group_vars/vms/secrets.sops.yml`, then
 `ansible-playbook secrets.yml` creates the Swarm secret **before** the push — an
 `external: true` secret that does not exist fails the deploy.
@@ -172,9 +180,10 @@ The chain is only visible across files:
 - **`stacks/traefik/`** is the edge router: pinned Traefik v3 with the native **swarm
    provider** (`exposedbydefault=false`), reading routing from `deploy.labels` on swarm
    services — so an app's route is defined in the app's own compose file, and adding one
-   never redeploys Traefik. Runs **global** (one task per node; constrained to
-   `node.role == manager`, so the mounted `docker.sock:ro` always serves the cluster API)
-   and publishes 80/443 via
+   never redeploys Traefik. Runs `replicated: 1` constrained to `node.role == manager`
+   (the mounted `docker.sock:ro` then always serves the cluster API) — one task, not
+   one-per-node, because OSS Traefik has no shared-ACME storage and parallel replicas
+   race on the same Cloudflare TXT record. Publishes 80/443 via
    **ingress**, letting the routing mesh serve the edge from any node IP. DNS is manual,
    outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.huisman.dev` → a node IP
    (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is live: Cloudflare
@@ -217,9 +226,10 @@ The chain is only visible across files:
   (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
 - Live swarm `homelab`: 3 managers (komodo-srv-01..03) + 3 workers (swarm-wrk-01..03) formed
   by `swarm.yml`; ingress
-  overlay migrated to 10.10.0.0/24; `whoami` + `uptime-kuma` are routed by the
-  Traefik edge (`*.swarm.huisman.dev`; mesh + Host-routing proven 2026-09-16,
-  no published app ports since the TLS cutover).
+  overlay migrated to 10.10.0.0/24; ten stacks are deployed and all webapps are routed
+  by the Traefik edge (`*.swarm.huisman.dev`; mesh + Host-routing proven 2026-09-16,
+  no published app ports since the TLS cutover) — see README "Deployed apps" for the
+  current hostnames, nodes and state.
 - Toolchain: OpenTofu v1.12.6, provider `bpg/proxmox` 0.113.1, ansible-core 2.21.4
   (Homebrew ansible 14.4.0), Python 3.14.
 - `tofu plan` with empty `var.vms` is clean; dynamic inventory degrades gracefully to an

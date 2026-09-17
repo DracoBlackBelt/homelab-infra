@@ -13,11 +13,10 @@
 # that mistake caused exit 127) forwarding the command: flags via "$@" (the
 # literal "sh" arg is $0 so they all survive). All $ must be doubled.
 #
-# acme.json lives on a node-local volume, so each of the 3 replicas holds its
-# own copy (sharing one file across replicas would need a distributed lock).
-# The cost is 3 identical wildcard certs per issuance -- that is the Duplicate
-# Certificate limit (5/week), NOT the 50/week registered-domain limit, and 3
-# leaves headroom as long as replicas aren't re-issuing constantly.
+# acme.json lives on a node-local volume. There is exactly ONE edge task (see
+# `deploy` below), so there is one copy and one wildcard cert -- no shared
+# storage, no distributed lock, nothing racing on the Cloudflare TXT record.
+# That is the whole reason the edge is replicated:1 and not one task per node.
 services:
   traefik:
     image: traefik:v3.7.13

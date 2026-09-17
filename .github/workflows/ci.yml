@@ -1,0 +1,106 @@
+# Static checks only: nothing here talks to the live hosts.
+#
+# Every check is mirrored by a `make` target so the same thing can be run
+# locally before pushing (see the Makefile; `make ci` runs the lot).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per ref; a new push cancels the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tofu:
+    name: tofu fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.12.6"
+          tofu_wrapper: false
+
+      - name: Check formatting
+        run: tofu fmt -check -recursive -diff
+
+      - name: Init (no backend, no remote state)
+        run: tofu -chdir=tofu init -backend=false
+
+      - name: Validate
+        env:
+          # validate never reads the real host, but the variable's own
+          # validation requires a non-empty token; plan/apply needs the real one.
+          TF_VAR_pve_api_token: ci-placeholder
+        run: tofu -chdir=tofu validate
+
+  ansible:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The plays need ansible-core >= 2.21 (deb822_repository/systemd_service)
+      # and the two pinned collections -- requirements.yml explains why.
+      - name: Install ansible-core, ansible-lint and the collections
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ansible-core>=2.21" ansible-lint
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint
+        working-directory: ansible
+        env:
+          # No age key in CI, so leave the community.sops vars plugin out:
+          # it would otherwise try (and fail) to decrypt group_vars/*.sops.yml.
+          # Lint does not need decrypted values.
+          ANSIBLE_VARS_PLUGINS: host_group_vars
+        run: ansible-lint
+
+  compose:
+    name: swarm stack config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker stack config` parses and merges exactly like `docker stack
+      # deploy`, so it catches the class of bug that reaches the swarm
+      # otherwise: a healthcheck/bind/flag that the daemon rejects at deploy
+      # time. It is pure client-side config, no daemon state involved.
+      - name: Validate every stack file
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(stacks/*/docker-compose.yaml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no stack files found" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "== $f"
+            docker stack config -c "$f" >/dev/null
+          done
+
+  consistency:
+    name: stack declarations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catches the two drift bugs we have actually hit: a stacks/<app>/ dir
+      # with no [[stack]] block (never deploys), and a [[stack]] block whose
+      # file_paths don't exist (the sync fails to deploy it).
+      - name: Check stacks/ <-> komodo/stacks.toml
+        run: python3 .github/scripts/check_stack_declarations.py

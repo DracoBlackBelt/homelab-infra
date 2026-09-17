@@ -39,6 +39,8 @@ separate plays.
 | `ansible/templates/`          | periphery config + systemd unit (rendered by komodo.yml) |
 | `komodo/*.toml`               | Komodo resources as code, synced by a ResourceSync   |
 | `stacks/`                     | swarm compose files referenced by `komodo/stacks.toml` |
+| `Makefile`                    | local mirror of CI + the day-to-day commands (`make help`) |
+| `.github/workflows/ci.yml`    | static checks on push/PR: tofu, ansible-lint, stack config |
 
 ## Usage
 
@@ -102,7 +104,11 @@ Everything is driven by git: edit, push, sync, deploy.
    `external: true` secret that does not exist fails the deploy.
 4. **Push.** The ResourceSync over `komodo/` computes the diff; confirm its
    actions in the UI — or wire the sync's webhook to the repo for zero-click
-   deploys. Updates to an existing app are the same loop: edit, push, sync.
+   deploys. **Caveat:** `deploy = true` re-deploys when the *TOML* changes,
+   not when a referenced compose file changes (Komodo #1120 / #1381), so a
+   compose-only edit needs an explicit **Deploy** in the UI — the sync alone
+   will not roll it. Removing a stack from `stacks.toml` likewise shows up as
+   a delete action to confirm; it is not automatic.
 5. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
    `docker service ls`. Apps are hostname-only (no published ports) — before
    DNS exists, `curl -s --resolve
@@ -120,12 +126,17 @@ Everything is driven by git: edit, push, sync, deploy.
   `deploy.labels` on services, so adding an app's route is a commit to that
   app's compose file — no Traefik redeploy. `exposedbydefault=false`: nothing
   routes unless labeled.
-- **Edge shape**: `stacks/traefik` runs **global** (one task per node) and
-  publishes 80/443 via ingress — the routing mesh makes any node IP a valid
-  target and survives a node loss. `web` (:80) is redirect-only.
+- **Edge shape**: `stacks/traefik` runs **`replicated: 1`** on a manager and
+  publishes 80/443 via ingress — the routing mesh still accepts :80/:443 on
+  every node and forwards to that one task, so any node IP is a valid entry.
+  One task, not one-per-node, because only one process may drive the ACME
+  (DNS-01) resolver: OSS Traefik has no shared-ACME storage (the v1 KV store
+  was dropped in 2.0), so parallel replicas race on the same Cloudflare TXT
+  record. `web` (:80) is redirect-only.
 - **DNS (manual, outside git)**: AdGuard Home (10.0.0.70) → Filters → DNS
   rewrites: `*.swarm.huisman.dev` → a swarm node LAN IP. One record is
-  enough (the mesh forwards), but all three IPs give DNS-level spreading.
+  enough (ingress accepts on every node and forwards to the edge task); all
+  six node IPs just spread the lookups.
 - **TLS**: one Let's Encrypt wildcard for `*.swarm.huisman.dev`, issued by
   Traefik via DNS-01 at Cloudflare (zone `huisman.dev` — validation is public
   even though AdGuard resolves the names locally). The API token (`Edit zone
@@ -135,10 +146,9 @@ Everything is driven by git: edit, push, sync, deploy.
   git; rotate it there too (Komodo does the rm/recreate + service-update
   dance). lego reads the token from env while swarm secrets mount as files,
   so the service entrypoint wraps `/traefik "$@"` to export
-  `CF_DNS_API_TOKEN` from `/run/secrets/…`. Each replica keeps its own
-  `acme.json` in the node-local `traefik-acme` volume — three identical certs
-  per issuance, inside LE's 5/week Duplicate Certificate limit. Routers:
-  `websecure` + `tls.certresolver=le`.
+  `CF_DNS_API_TOKEN` from `/run/secrets/…`. The single edge task keeps
+  `acme.json` in the node-local `traefik-acme` volume — one wildcard cert, not
+  one per node. Routers: `websecure` + `tls.certresolver=le`.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
@@ -158,6 +168,27 @@ stack deploy drops it; set `deploy.resources.limits` — the nodes are small.
 One-time setup that makes this loop exist (already done): a read-only GitHub
 token registered in Komodo as git account `DracoBlackBelt`, and the single
 `ResourceSync` pointing at this repo's `komodo/` directory.
+
+## Deployed apps
+
+What is live right now, and where. Stateful services are pinned to one node
+because their data is a node-local volume, so the pin is not cosmetic — moving
+one means moving its data too.
+
+| App | URL (`*.swarm.huisman.dev`) | Node | State |
+| --- | --- | --- | --- |
+| whoami | `whoami` | any (3 replicas) | none |
+| uptime-kuma | `kuma` | swarm-wrk-01 | sqlite volume |
+| searxng | `search` | swarm-wrk-01 | cache volume |
+| flame | `home` | swarm-wrk-01 | sqlite volume |
+| web-check | `webcheck` | swarm-wrk-02 | none |
+| forgejo | `git` | swarm-wrk-02 | sqlite volume |
+| dawarich | `timeline` | swarm-wrk-02 | postgis + volumes |
+| freshrss | `rss` | swarm-wrk-03 | postgres + volumes |
+| vaultwarden | `vault` | swarm-wrk-03 | sqlite volume |
+
+`traefik` itself is the edge, on a manager; see `komodo/stacks.toml` for the
+authoritative list.
 
 ## Notes
 
