@@ -1,0 +1,200 @@
+# Dawarich: self-hosted location history. Rails app + Sidekiq worker + PostGIS
+# + Redis, all pinned to one worker (the named volumes are node-local). Only the
+# app joins the proxy overlay for Traefik; db and redis stay on the stack-local
+# network.
+#
+# Rails reads SECRET_KEY_BASE / DATABASE_PASSWORD from the environment (it has
+# no _FILE support), so the app and worker use an sh wrapper that exports them
+# from /run/secrets and then execs the image's own entrypoint script. Postgres
+# reads POSTGRES_PASSWORD_FILE natively, so it needs no wrapper.
+#
+# Resource limits are deliberately far below Dawarich's upstream default (4 GB):
+# this runs on a 5 GiB worker. Raise WEB_CONCURRENCY / the app limit if imports
+# feel slow.
+services:
+  dawarich-redis:
+    image: redis:7.4-alpine
+    command: redis-server --save 900 1 --save 300 10 --appendonly no
+    networks:
+      - dawarich
+    volumes:
+      - dawarich-shared:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-02
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+      restart_policy:
+        condition: any
+
+  dawarich-db:
+    image: postgis/postgis:17-3.5-alpine
+    networks:
+      - dawarich
+    volumes:
+      - dawarich-db-data:/var/lib/postgresql/data
+      - dawarich-shared:/var/shared
+    secrets:
+      - dawarich_db_password
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: dawarich_production
+      POSTGRES_PASSWORD_FILE: /run/secrets/dawarich_db_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d dawarich_production']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-02
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+      restart_policy:
+        condition: any
+
+  dawarich-app:
+    image: freikin/dawarich:1.14.5
+    networks:
+      - dawarich
+      - proxy
+    volumes:
+      - dawarich-public:/var/app/public
+      - dawarich-watched:/var/app/tmp/imports/watched
+      - dawarich-storage:/var/app/storage
+    secrets:
+      - dawarich_secret_key_base
+      - dawarich_db_password
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export SECRET_KEY_BASE="$$(cat /run/secrets/dawarich_secret_key_base)"; export DATABASE_PASSWORD="$$(cat /run/secrets/dawarich_db_password)"; exec web-entrypoint.sh "$$@"'
+      - sh
+    command: ['bin/rails', 'server', '-p', '3000', '-b', '::']
+    environment:
+      RAILS_ENV: production
+      REDIS_URL: redis://dawarich-redis:6379
+      DATABASE_HOST: dawarich-db
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: postgres
+      DATABASE_NAME: dawarich_production
+      APPLICATION_HOSTS: dawarich.swarm.huisman.dev
+      APPLICATION_PROTOCOL: https
+      TIME_ZONE: Europe/Amsterdam
+      SELF_HOSTED: "true"
+      STORE_GEODATA: "true"
+      RAILS_LOG_TO_STDOUT: "true"
+      WEB_CONCURRENCY: "1"
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/v1/health | grep -q status || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-02
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 384M
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.dawarich.rule=Host(`dawarich.swarm.huisman.dev`)"
+        - "traefik.http.routers.dawarich.entrypoints=websecure"
+        - "traefik.http.routers.dawarich.tls=true"
+        - "traefik.http.routers.dawarich.tls.certresolver=le"
+        - "traefik.http.routers.dawarich.tls.domains[0].main=*.swarm.huisman.dev"
+        - "traefik.http.services.dawarich.loadbalancer.server.port=3000"
+
+  dawarich-sidekiq:
+    image: freikin/dawarich:1.14.5
+    networks:
+      - dawarich
+    volumes:
+      - dawarich-public:/var/app/public
+      - dawarich-watched:/var/app/tmp/imports/watched
+      - dawarich-storage:/var/app/storage
+    secrets:
+      - dawarich_secret_key_base
+      - dawarich_db_password
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export SECRET_KEY_BASE="$$(cat /run/secrets/dawarich_secret_key_base)"; export DATABASE_PASSWORD="$$(cat /run/secrets/dawarich_db_password)"; exec sidekiq-entrypoint.sh "$$@"'
+      - sh
+    command: ['sidekiq']
+    environment:
+      RAILS_ENV: production
+      REDIS_URL: redis://dawarich-redis:6379
+      DATABASE_HOST: dawarich-db
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: postgres
+      DATABASE_NAME: dawarich_production
+      APPLICATION_HOSTS: dawarich.swarm.huisman.dev
+      APPLICATION_PROTOCOL: https
+      TIME_ZONE: Europe/Amsterdam
+      SELF_HOSTED: "true"
+      STORE_GEODATA: "true"
+      RAILS_LOG_TO_STDOUT: "true"
+      BACKGROUND_PROCESSING_CONCURRENCY: "3"
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -f sidekiq >/dev/null || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-02
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+      restart_policy:
+        condition: any
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+  dawarich:
+    driver: overlay
+
+secrets:
+  dawarich_secret_key_base:
+    external: true
+  dawarich_db_password:
+    external: true
+
+volumes:
+  dawarich-db-data:
+  dawarich-shared:
+  dawarich-public:
+  dawarich-watched:
+  dawarich-storage:
