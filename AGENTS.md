@@ -34,6 +34,7 @@ cd ansible && ansible-playbook tailscale.yml                          # install 
 cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
 cd ansible && ansible-playbook swarm.yml                              # converge the swarm (managers + workers)
 cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
+cd ansible && ansible-playbook secrets.yml                            # seed swarm secrets from SOPS (before deploying stacks)
 cd ansible && ansible-lint                                            # lint (brew install ansible-lint)
 ```
 
@@ -66,7 +67,10 @@ enforced by a `lifecycle.precondition`.
 image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
 `swarm = "homelab"` with `deploy = true`, then push — the ResourceSync diffs and
 (re)deploys. One stack per app; secrets never enter synced TOMLs (see the
-komodo/*.toml architecture bullet and the README's "Adding an app" section).
+komodo/*.toml architecture bullet and the README's "Adding an app" section). An app
+needing a secret gets it into `group_vars/vms/secrets.sops.yml`, then
+`ansible-playbook secrets.yml` creates the Swarm secret **before** the push — an
+`external: true` secret that does not exist fails the deploy.
 Webapps are routed by Traefik, not by publishing ports: join the external `proxy`
 overlay + `deploy.labels` with `traefik.enable=true`, a
 `Host(\`<app>.swarm.huisman.dev\`)` router on entrypoint `websecure` with
@@ -115,8 +119,15 @@ The chain is only visible across files:
   `ansible_become: true` — Ansible connects as `debian` (sourced once from
   `local.vm_username` in `tofu/locals.tf` and exported via `vm_inventory`) and escalates;
   escalation is deliberately an Ansible concern, not part of the tofu output.
-  `secrets.sops.yml` (SOPS/age encrypted) holds `tailscale_auth_key` (`tailscale.yml`)
-  and `komodo_onboarding_key` (`komodo.yml`); `all.yml` also pins `komodo_core_address`.
+  `secrets.sops.yml` (SOPS/age encrypted) holds `tailscale_auth_key` (`tailscale.yml`),
+  `komodo_onboarding_key` (`komodo.yml`) and per-app secrets (`searxng_secret`,
+  `flame_password`, … seeded into Swarm by `secrets.yml`); `all.yml` also pins
+  `komodo_core_address` and the `swarm_manager_hosts` / `swarm_init_manager` roles.
+- **`ansible/secrets.yml`** seeds cluster-wide Docker Swarm secrets from the
+  SOPS-decrypted group_vars (`tasks/swarm_secret.yml`). It only creates what is
+  missing — Swarm secrets are immutable, so rotation stays a manual `docker secret
+  rm` + service update. Run it before deploying any stack whose compose references
+  an `external: true` secret; a missing secret fails the deploy.
 - **`ansible/tailscale.yml`** installs the package from Tailscale's official apt repo
   (`deb822_repository`, key fetched from `pkgs.tailscale.com`) and registers each VM with
   one reusable+ephemeral auth key. The CLI does not read `TS_AUTHKEY` (that's

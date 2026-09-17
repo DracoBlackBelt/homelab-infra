@@ -35,6 +35,7 @@ separate plays.
 | `ansible/site.yml`            | provisioning chain: hardening → tailscale → docker → swarm → komodo |
 | `ansible/{hardening,tailscale,docker,swarm,komodo}.yml` | the five links, each also runnable standalone |
 | `ansible/group_vars/vms/`     | group vars, incl. SOPS-encrypted secrets             |
+| `ansible/secrets.yml`         | seeds Swarm secrets from SOPS (run before stack deploys) |
 | `ansible/templates/`          | periphery config + systemd unit (rendered by komodo.yml) |
 | `komodo/*.toml`               | Komodo resources as code, synced by a ResourceSync   |
 | `stacks/`                     | swarm compose files referenced by `komodo/stacks.toml` |
@@ -94,10 +95,15 @@ Everything is driven by git: edit, push, sync, deploy.
    file_paths = ["stacks/immich/docker-compose.yaml"]  # several files merge like docker compose -f -f
    ```
 
-3. **Push.** The ResourceSync over `komodo/` computes the diff; confirm its
+3. **Secrets** (only if the app needs one) — add the value to
+   `ansible/group_vars/vms/secrets.sops.yml` (`sops ansible/group_vars/vms/secrets.sops.yml`),
+   add the name to `swarm_secrets` in `ansible/secrets.yml`, then
+   `cd ansible && ansible-playbook secrets.yml` to create the Swarm secret. A compose
+   `external: true` secret that does not exist fails the deploy.
+4. **Push.** The ResourceSync over `komodo/` computes the diff; confirm its
    actions in the UI — or wire the sync's webhook to the repo for zero-click
    deploys. Updates to an existing app are the same loop: edit, push, sync.
-4. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
+5. **Verify:** the stack shows its services/tasks in the Komodo UI; on any VM,
    `docker service ls`. Apps are hostname-only (no published ports) — before
    DNS exists, `curl -s --resolve
    whoami.swarm.huisman.dev:443:10.0.0.41

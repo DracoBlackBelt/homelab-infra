@@ -1,0 +1,70 @@
+# Flame: self-hosted start page/dashboard. Routed by Traefik (Host on
+# websecure + shared le resolver); no published port.
+#
+# PASSWORD comes from the swarm secret `flame_password` (seeded by
+# ansible/secrets.yml from SOPS); the sh wrapper exports it from /run/secrets.
+# GOTCHA: the image's CMD is `sh -c 'chown -R node /app/data && node server.js'`
+# -- because the wrapper overrides the entrypoint, that CMD must be re-declared
+# under `command:` (docker stack deploy drops the image CMD otherwise; see
+# stacks/freshrss for the same trap).
+services:
+  flame:
+    image: pawelmalak/flame:2.4.0
+    networks:
+      - proxy
+    secrets:
+      - flame_password
+    volumes:
+      - flame-data:/app/data
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export PASSWORD="$$(cat /run/secrets/flame_password)"; exec docker-entrypoint.sh "$$@"'
+      - sh
+    command:
+      - sh
+      - -c
+      - 'chown -R node /app/data && node server.js'
+    environment:
+      TZ: Europe/Amsterdam
+      BASE_URL: https://flame.swarm.huisman.dev
+      PUID: "1000"
+      PGID: "1000"
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:5005/ || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-01
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.flame.rule=Host(`flame.swarm.huisman.dev`)"
+        - "traefik.http.routers.flame.entrypoints=websecure"
+        - "traefik.http.routers.flame.tls=true"
+        - "traefik.http.routers.flame.tls.certresolver=le"
+        - "traefik.http.routers.flame.tls.domains[0].main=*.swarm.huisman.dev"
+        - "traefik.http.services.flame.loadbalancer.server.port=5005"
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+
+secrets:
+  flame_password:
+    external: true
+
+volumes:
+  flame-data:

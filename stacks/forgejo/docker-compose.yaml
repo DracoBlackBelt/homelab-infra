@@ -1,0 +1,64 @@
+# Forgejo: self-hosted git. SQLite on a node-local volume, single replica pinned
+# to one node (a swarm local volume lives on the node its task runs on).
+# Routed by Traefik (Host on websecure + shared le resolver); no published port.
+#
+# SSH is disabled for now -- git is HTTP(S)-only through the Traefik route.
+# Adding SSH later means publishing a non-22 port via ingress.
+#
+# INSTALL_LOCK skips the web installer; with registration disabled, create the
+# first admin from a node after the task is running:
+#   docker exec <task-container> forgejo admin user create \
+#     --admin --username <u> --email <e> --password <pw> --must-change-password=false
+# (Forgejo generates SECRET_KEY/INTERNAL_TOKEN itself, into app.ini in /data.)
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:16.0.4
+    networks:
+      - proxy
+    volumes:
+      - forgejo-data:/data
+    environment:
+      TZ: Europe/Amsterdam
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__DOMAIN: forgejo.swarm.huisman.dev
+      FORGEJO__server__ROOT_URL: https://forgejo.swarm.huisman.dev/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:3000/api/healthz || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-wrk-02
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.forgejo.rule=Host(`forgejo.swarm.huisman.dev`)"
+        - "traefik.http.routers.forgejo.entrypoints=websecure"
+        - "traefik.http.routers.forgejo.tls=true"
+        - "traefik.http.routers.forgejo.tls.certresolver=le"
+        - "traefik.http.routers.forgejo.tls.domains[0].main=*.swarm.huisman.dev"
+        - "traefik.http.services.forgejo.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+
+volumes:
+  forgejo-data:

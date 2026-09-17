@@ -61,3 +61,59 @@ git_account = "DracoBlackBelt"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/freshrss/docker-compose.yaml"]
+
+[[stack]]
+name = "searxng"
+description = "Private metasearch (searxng_secret; pinned to swarm-wrk-01)"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/searxng/docker-compose.yaml"]
+
+[[stack]]
+name = "flame"
+description = "Start page/dashboard (flame_password; pinned to swarm-wrk-01)"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/flame/docker-compose.yaml"]
+
+[[stack]]
+name = "web-check"
+description = "Site/security analysis, internal-only (SSRF); pinned to swarm-wrk-02"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/web-check/docker-compose.yaml"]
+
+[[stack]]
+name = "forgejo"
+description = "Self-hosted git, SQLite on a pinned volume; public later via Authelia"
+tags = ["swarm", "app"]
+deploy = true
+
+[stack.config]
+swarm = "homelab"
+git_provider = "github.com"
+git_account = "DracoBlackBelt"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/forgejo/docker-compose.yaml"]
