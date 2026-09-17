@@ -21,9 +21,9 @@
 services:
   traefik:
     image: traefik:v3.7.13
-    # The swarm provider needs the cluster API. Every node here is a
-    # manager, so the local socket always serves it; :ro because Traefik
-    # must only READ services/labels, never create containers.
+    # The swarm provider needs the cluster API. Traefik is constrained to
+    # managers (below), so the local socket always serves it; :ro because
+    # Traefik must only READ services/labels, never create containers.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-acme:/data

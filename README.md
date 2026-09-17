@@ -9,9 +9,9 @@ The *plumbing* is proven against the live host: connection to Proxmox (endpoint 
 API token), the sealed golden template (vmid 9000), the cloud-init SSH key path,
 the tofu→Ansible inventory bridge, provider pinned to `~> 0.113.1`. On top of it
 sits the guest-config chain: `ansible/site.yml` hardens each VM's APT policy, joins
-it to the tailnet, installs Docker Engine, converges them into a Docker Swarm (all
-managers), and connects a Komodo Periphery agent back to Komodo Core (outbound only —
-Core never needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
+it to the tailnet, installs Docker Engine, converges them into a Docker Swarm (3 raft
+managers + workers), and connects a Komodo Periphery agent back to Komodo Core (outbound
+only — Core never needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
 declared as git-synced TOML in `komodo/`, applied by one bootstrap ResourceSync.
 A `traefik` edge stack (deployed through the same loop) routes apps by hostname
 under `*.swarm.huisman.dev`.
@@ -62,8 +62,9 @@ ansible-playbook site.yml --limit <vm-name>
 ```
 
 Adding a VM is a one-line change in `terraform.tfvars`; the dynamic inventory
-picks it up automatically on the next play. New VMs also join the swarm as
-managers when `site.yml` reaches them.
+picks it up automatically on the next play. New VMs join the swarm as **workers**
+when `site.yml` reaches them; add the name to `swarm_manager_hosts`
+(`group_vars/vms/all.yml`) to make it a raft manager instead.
 
 ## Adding an app (deploy to the swarm)
 

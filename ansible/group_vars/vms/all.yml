@@ -7,7 +7,15 @@ ansible_become: true
 # valid, so no TLS exceptions are needed on the agents.
 komodo_core_address: "https://pbs.tail9ef5e7.ts.net"
 
-# Docker Swarm bootstrap manager and join point (swarm.yml); all vms group
-# members join it as managers. Repoint this at a survivor only if this node
-# dies for real -- see the header of swarm.yml.
+# Docker Swarm bootstrap manager and join point (swarm.yml). Repoint this at a
+# survivor only if this node dies for real -- see the header of swarm.yml.
 swarm_init_manager: komodo-srv-01
+
+# The raft managers (control plane + Traefik edge). Every other `vms` member
+# joins as a WORKER and runs app tasks. Keep this list odd and small: 3
+# tolerates one loss, and keeping app workloads off the managers means an OOM
+# can't disturb raft. Traefik is constrained to node.role == manager.
+swarm_manager_hosts:
+  - komodo-srv-01
+  - komodo-srv-02
+  - komodo-srv-03

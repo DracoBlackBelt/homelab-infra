@@ -1,4 +1,4 @@
-# Converge a Docker Swarm across the VMs, with every node a manager.
+# Converge a Docker Swarm across the VMs.
 #
 # Why this lives in Ansible and not Komodo: Komodo's Swarm resource only
 # *points at* manager Servers it should talk to -- it deliberately does not
@@ -6,10 +6,12 @@
 # the command). So cluster membership is provisioned here; the Swarm resource
 # (komodo/swarms.toml) then just observes and deploys onto it.
 #
-# Topology: all vms group members are Swarm MANAGERS (3 nodes = raft quorum
-# that survives losing one). `swarm_init_manager` (group_vars/vms/all.yml) is
-# the bootstrap leader and the join point; every node advertises on its LAN
-# address (vmbr0), not the tailnet -- ports 2377/7946/4789 stay on-LAN.
+# Topology: `swarm_manager_hosts` (group_vars/vms/all.yml) are the raft
+# MANAGERS -- 3 nodes, quorum that survives losing one -- and hold the Traefik
+# edge; every other vms member joins as a WORKER running app tasks, so an OOM
+# on an app can't disturb raft. `swarm_init_manager` is the bootstrap leader
+# and the join point; every node advertises on its LAN address (vmbr0), not the
+# tailnet -- ports 2377/7946/4789 stay on-LAN.
 #
 # If the init manager dies for real: demote/remove it from another manager
 # (`docker node rm -f <host>`), point `swarm_init_manager` at a survivor, and
@@ -102,17 +104,28 @@
       delegate_to: "{{ swarm_init_manager }}"
       run_once: true
       when: swarm_needs_token
-      register: join_token
+      register: manager_join_token
       changed_when: false
       no_log: true
 
-    - name: Join the swarm as a manager
+    - name: Fetch the worker join token
+      ansible.builtin.command: docker swarm join-token -q worker
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      when: swarm_needs_token
+      register: worker_join_token
+      changed_when: false
+      no_log: true
+
+    - name: Join the swarm
       # --advertise-addr pins the LAN address explicitly. Without it Docker
       # infers the advertise IP from the outgoing route, which is the LAN today
       # but could pick the tailnet interface once we're on it -- and ports
-      # 2377/7946/4789 must stay on-LAN.
+      # 2377/7946/4789 must stay on-LAN. managers in swarm_manager_hosts use the
+      # manager token; everyone else joins as a worker.
       ansible.builtin.command: >-
-        docker swarm join --token {{ join_token.stdout | trim }}
+        docker swarm join
+        --token {{ (inventory_hostname in swarm_manager_hosts) | ternary(manager_join_token.stdout, worker_join_token.stdout) | trim }}
         --advertise-addr {{ ansible_host }}
         {{ hostvars[swarm_init_manager].ansible_host }}:2377
       when:
@@ -167,35 +180,49 @@
       delay: 5
       changed_when: false
 
-    - name: Collect Ready+Active managers
+    - name: Collect Ready nodes and Ready managers
       ansible.builtin.set_fact:
+        swarm_ready_nodes: >-
+          {{ nodes.stdout_lines | map('from_json') | list
+             | selectattr('Status', 'equalto', 'Ready')
+             | map(attribute='Hostname') | list }}
         swarm_managers: >-
           {{ nodes.stdout_lines | map('from_json') | list
              | selectattr('Status', 'equalto', 'Ready')
              | selectattr('Availability', 'equalto', 'Active')
              | selectattr('ManagerStatus', 'defined')
-             | rejectattr('ManagerStatus', 'equalto', 'Unavailable')
+             | rejectattr('ManagerStatus', 'in', ['', 'Unavailable'])
              | map(attribute='Hostname') | list }}
       run_once: true
 
     # Scope-aware: hard-fail only for nodes this run actually touched. Comparing
     # against groups['vms'] would break any --limit run while a newly declared
     # VM is still unprovisioned (e.g. `site.yml --limit <existing>` with a 4th
-    # VM in tfvars).
-    - name: Assert every node in this run is a Ready manager
+    # VM in tfvars). Role-aware: managers must be Ready managers, workers only
+    # need to be Ready nodes.
+    - name: Assert the managers in this run are Ready managers
       ansible.builtin.assert:
-        that: (ansible_play_hosts_all | difference(swarm_managers)) | length == 0
+        that: (ansible_play_hosts_all | intersect(swarm_manager_hosts) | difference(swarm_managers)) | length == 0
         fail_msg: >-
-          {{ ansible_play_hosts_all | difference(swarm_managers) | join(', ') }}
+          {{ ansible_play_hosts_all | intersect(swarm_manager_hosts) | difference(swarm_managers) | join(', ') }}
           did not come up as Ready managers -- run `docker node ls` on
           {{ swarm_init_manager }} to see who isn't.
       run_once: true
 
-    - name: Note inventory VMs that are not managers yet
+    - name: Assert the workers in this run are Ready nodes
+      ansible.builtin.assert:
+        that: (ansible_play_hosts_all | difference(swarm_manager_hosts) | difference(swarm_ready_nodes)) | length == 0
+        fail_msg: >-
+          {{ ansible_play_hosts_all | difference(swarm_manager_hosts) | difference(swarm_ready_nodes) | join(', ') }}
+          did not come up as Ready nodes -- run `docker node ls` on
+          {{ swarm_init_manager }} to see who isn't.
+      run_once: true
+
+    - name: Note inventory VMs that are not Ready nodes yet
       ansible.builtin.debug:
         msg: >-
-          Not yet Ready managers: {{ groups['vms'] | difference(swarm_managers) | join(', ') }}
-      when: groups['vms'] | difference(swarm_managers) | length > 0
+          Not yet Ready: {{ groups['vms'] | difference(swarm_ready_nodes) | join(', ') }}
+      when: groups['vms'] | difference(swarm_ready_nodes) | length > 0
       run_once: true
 
     # Cluster-wide overlay shared by the Traefik edge and every routed app.
@@ -220,7 +247,8 @@
     - name: Swarm status
       ansible.builtin.debug:
         msg: >-
-          Swarm on {{ swarm_init_manager }} ({{ hostvars[swarm_init_manager].ansible_host }}:2377)
-          has {{ swarm_managers | length }} Ready managers: {{ swarm_managers | join(', ') }}.
+          Swarm on {{ swarm_init_manager }} ({{ hostvars[swarm_init_manager].ansible_host }}:2377):
+          {{ swarm_managers | length }} Ready managers ({{ swarm_managers | join(', ') }}),
+          {{ (swarm_ready_nodes | length) - (swarm_managers | length) }} Ready workers.
           Overlay 'proxy' ensured for Traefik routing.
           Next: create the ResourceSync over komodo/ so the Swarm resource appears in Core.

@@ -11,7 +11,7 @@
 # in order; all are managers, so losing one keeps deploys alive via quorum).
 [[swarm]]
 name = "homelab"
-description = "Docker Swarm on the homelab-infra VMs (3 managers)"
+description = "Docker Swarm on the homelab-infra VMs (3 managers + 3 workers)"
 tags = ["swarm"]
 
 [swarm.config]

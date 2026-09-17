@@ -32,7 +32,7 @@ cd ansible && ansible-playbook site.yml                               # hardenin
 cd ansible && ansible-playbook hardening.yml                          # apt policy: security upgrades, never auto-reboot
 cd ansible && ansible-playbook tailscale.yml                          # install + join tailnet
 cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
-cd ansible && ansible-playbook swarm.yml                              # converge the swarm (all managers)
+cd ansible && ansible-playbook swarm.yml                              # converge the swarm (managers + workers)
 cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
 cd ansible && ansible-lint                                            # lint (brew install ansible-lint)
 ```
@@ -54,9 +54,10 @@ ansible package happens to bundle.
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
 `address`, optional `cores`/`memory`/`disk_size`/`gateway`), then `tofu -chdir=tofu apply`
 followed by `cd ansible && ansible-playbook site.yml --limit <name>`. The dynamic
-inventory picks the VM up automatically — nothing else to update; `site.yml` even joins
-it to the swarm as a new manager (add its name to `komodo/swarms.toml` `servers` only for
-read-path redundancy in Core). `disk_size` must be >= 16: the template's volume is 16
+inventory picks the VM up automatically — nothing else to update; `site.yml` joins it to
+the swarm as a **worker**. To make it a raft manager instead, add its name to
+`swarm_manager_hosts` (`group_vars/vms/all.yml`); to let Core read through it too, add it
+to `komodo/swarms.toml` `servers`. `disk_size` must be >= 16: the template's volume is 16
 GiB and a cloned disk cannot shrink (smaller values fail at apply). `address` must be
 CIDR (`10.0.0.41/24`), enforced by a variable `validation`. Map key must equal `name`,
 enforced by a `lifecycle.precondition`.
@@ -138,9 +139,11 @@ The chain is only visible across files:
   a prerequisite for Komodo managing containers/stacks on a VM.
 - **`ansible/swarm.yml`** converges the Docker Swarm: probes each node's
   `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (komodo-srv-01) if inactive,
-  then joins every other node with the **manager** token — fetched (`no_log`) only when a
-  node is actually `inactive` — all nodes are managers, so 3 nodes = raft quorum that
-  survives one loss. Both init and join pass `--advertise-addr`, so nodes advertise on the
+  then joins every other node with the **manager or worker** token per `swarm_manager_hosts` —
+  both fetched (`no_log`) only when a node is actually `inactive`. The 3 managers
+  (komodo-srv-01..03) form raft quorum that survives one loss; every other VM is a worker, so
+  an app OOM can't disturb raft (and Traefik's `node.role == manager` keeps the edge on the
+  managers). Both init and join pass `--advertise-addr`, so nodes advertise on the
   LAN (vmbr0), never the tailnet. It never inits over, re-joins, or `swarm leave`s
   an `active` node, and aborts rather than touching a `pending` one. The header carries the
   lost-bootstrap-manager runbook. It also loads+persists the `openvswitch` kernel module
@@ -158,8 +161,9 @@ The chain is only visible across files:
 - **`stacks/traefik/`** is the edge router: pinned Traefik v3 with the native **swarm
    provider** (`exposedbydefault=false`), reading routing from `deploy.labels` on swarm
    services — so an app's route is defined in the app's own compose file, and adding one
-   never redeploys Traefik. Runs **global** (one task per node; all nodes are managers, so
-   the mounted `docker.sock:ro` always serves the cluster API) and publishes 80/443 via
+   never redeploys Traefik. Runs **global** (one task per node; constrained to
+   `node.role == manager`, so the mounted `docker.sock:ro` always serves the cluster API)
+   and publishes 80/443 via
    **ingress**, letting the routing mesh serve the edge from any node IP. DNS is manual,
    outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.huisman.dev` → a node IP
    (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is live: Cloudflare
@@ -169,7 +173,7 @@ The chain is only visible across files:
    file into `CF_DNS_API_TOKEN` before `exec /traefik "$@"`). Apps route on
    `websecure`, `web` is redirect-only, and steady-state app stacks publish **no**
    ports — see README "Routing".
-- **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three VMs) and
+- **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three manager VMs) and
   Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI
   (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)
   and pushing is how Komodo resources change; the sync's webhook can run it on push.
@@ -190,14 +194,18 @@ The chain is only visible across files:
   `komodo_release_checksums` in the play must change **together** (checksums are from the
   release page; `get_url` fails the check otherwise).
 
-## Verified facts (baseline check, 2026-09-15)
+## Verified facts (baseline 2026-09-15; swarm expanded 2026-09-17)
 
+- Proxmox host `prox`: Ryzen 7 5800X (8c/16t), 32 GB RAM, ZFS `fastpool` ~1.4 TB free,
+  PBS datastore only ~190 GB free (expand before relying on it). CPU is near-idle; RAM
+  is the sizing constraint.
 - PVE 9.2.18 at `https://prox.int.huisman.dev`; API token auth works; TLS cert is valid
   (no `insecure` flag needed).
 - Template 9000 exists, is sealed, 16 GiB disk.
 - Komodo Core runs on the `pbs` tailnet node at `https://pbs.tail9ef5e7.ts.net`
   (tailnet-only, valid ts.net cert); periphery agents dial it in outbound mode.
-- Live swarm `homelab`: 3 managers (komodo-srv-01..03) formed by `swarm.yml`; ingress
+- Live swarm `homelab`: 3 managers (komodo-srv-01..03) + 3 workers (swarm-wrk-01..03) formed
+  by `swarm.yml`; ingress
   overlay migrated to 10.10.0.0/24; `whoami` + `uptime-kuma` are routed by the
   Traefik edge (`*.swarm.huisman.dev`; mesh + Host-routing proven 2026-09-16,
   no published app ports since the TLS cutover).
