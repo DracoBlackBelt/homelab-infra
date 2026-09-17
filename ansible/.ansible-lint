@@ -5,6 +5,11 @@
 # role/file layout this small, single-file-play tree deliberately lacks.
 profile: moderate
 
+# SOPS-encrypted files are ciphertext, not playbook source: they lint as long
+# ENC[...] lines and `#ENC` comments.
+exclude_paths:
+  - group_vars/**/*.sops.yml
+
 # The plays drive the docker/tailscale CLIs directly where no builtin module
 # exists (swarm membership, network create, tailscale), and verify cluster
 # state with separate asserts -- so these are warnings, not failures.

@@ -15,6 +15,15 @@
     docker_repo_url: "https://download.docker.com/linux/debian"
     docker_codename: "{{ ansible_facts['distribution_release'] }}"
 
+  handlers:
+    # One node at a time: restarting dockerd restarts that node's containers,
+    # and every node is a manager. Traefik runs global, so the edge stays up.
+    - name: Restart docker
+      ansible.builtin.systemd_service:
+        name: docker
+        state: restarted
+      throttle: 1
+
   tasks:
     - name: Add the Docker apt repository
       ansible.builtin.deb822_repository:
@@ -40,6 +49,24 @@
         # Same rationale as tailscale.yml: deb822_repository does not refresh
         # the cache, so a stale cache could hide the just-added repo.
         update_cache: true
+      tags: install
+
+    # log-opts is the load-bearing part: unbounded json-file logs are what
+    # actually fills a 16 GiB disk on a long-running host. Rotation applies to
+    # containers created after the restart. No default-address-pools here --
+    # swarm already pins 10.10.0.0/16 at init and the LAN doesn't overlap it.
+    - name: Configure the Docker daemon
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": { "max-size": "10m", "max-file": "3" }
+          }
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart docker
       tags: install
 
     - name: Ensure docker is enabled and running

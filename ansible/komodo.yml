@@ -7,7 +7,7 @@
 # disabled; no passkeys, no SSL certs, nothing to open.
 #
 # Authentication is a keypair auto-generated under /etc/komodo/keys/ on first
-# dial. The vaulted komodo_onboarding_key (group_vars/vms/vault.yml) is what
+# dial. The SOPS-encrypted komodo_onboarding_key (group_vars/vms/secrets.sops.yml) is what
 # lets a never-before-seen agent create its Server in Core: create ONE
 # reusable onboarding key in the Komodo UI (Servers -> Onboarding Keys) and
 # every current and future VM self-onboards as a Server named after its
@@ -54,7 +54,7 @@
         quiet: true
         fail_msg: >-
           Set komodo_core_address in group_vars/vms/all.yml and the onboarding
-          key with: cd ansible && ansible-vault edit group_vars/vms/vault.yml
+          key with: sops ansible/group_vars/vms/secrets.sops.yml
 
     - name: Confirm a release asset exists for this architecture
       ansible.builtin.assert:

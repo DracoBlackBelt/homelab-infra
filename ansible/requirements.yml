@@ -1,14 +1,18 @@
 # The Galaxy install contract for the plays:
 #   cd ansible && ansible-galaxy collection install -r requirements.yml
 #
-# ansible.utils provides the `in_network` test used by swarm.yml's ingress/LAN
-# overlap check -- CIDR math that pure Jinja cannot express. Everything else is
-# ansible.builtin, so this is the only collection dependency.
+# ansible.utils    -- swarm.yml's ingress/LAN overlap check (`in_network`),
+#                     CIDR math that pure Jinja cannot express.
+# community.sops   -- decrypts the *.sops.yml secrets in group_vars as they load
+#                     (vars plugin), so the age key stays out of git.
 #
-# The real ansible-core floor is 2.21: the plays use
-# ansible.builtin.deb822_repository and ansible.builtin.systemd_service, which
-# do not exist under those names on older cores (ansible.utils 6.x needs >= 2.16).
+# Everything else is ansible.builtin. The real ansible-core floor is 2.21: the
+# plays use ansible.builtin.deb822_repository and ansible.builtin.systemd_service,
+# which do not exist under those names on older cores (ansible.utils 6.x needs
+# >= 2.16, community.sops 2.x needs >= 2.15).
 ---
 collections:
   - name: ansible.utils
     version: "6.1.1"
+  - name: community.sops
+    version: "2.4.0"

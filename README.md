@@ -8,10 +8,10 @@ from a hand-built golden template, and Ansible configures those VMs over SSH.
 The *plumbing* is proven against the live host: connection to Proxmox (endpoint +
 API token), the sealed golden template (vmid 9000), the cloud-init SSH key path,
 the tofu→Ansible inventory bridge, provider pinned to `~> 0.113.1`. On top of it
-sits the guest-config chain: `ansible/site.yml` joins each VM to the tailnet,
-installs Docker Engine, converges them into a Docker Swarm (all managers), and
-connects a Komodo Periphery agent back to Komodo Core (outbound only — Core never
-needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
+sits the guest-config chain: `ansible/site.yml` hardens each VM's APT policy, joins
+it to the tailnet, installs Docker Engine, converges them into a Docker Swarm (all
+managers), and connects a Komodo Periphery agent back to Komodo Core (outbound only —
+Core never needs to reach the VMs). Komodo's own objects — the Swarm resource, stacks — are
 declared as git-synced TOML in `komodo/`, applied by one bootstrap ResourceSync.
 A `traefik` edge stack (deployed through the same loop) routes apps by hostname
 under `*.swarm.huisman.dev`.
@@ -32,9 +32,9 @@ separate plays.
 | `docs/golden-template.md`     | spec for building/sealing template vmid 9000         |
 | `ansible/inventory/tofu.py`   | dynamic inventory: reads `tofu output -json`         |
 | `ansible/ping.yml`            | smoke test for the full chain                        |
-| `ansible/site.yml`            | provisioning chain: tailscale → docker → swarm → komodo |
-| `ansible/{tailscale,docker,swarm,komodo}.yml` | the four links, each also runnable standalone |
-| `ansible/group_vars/vms/`     | group vars, incl. vault-encrypted keys               |
+| `ansible/site.yml`            | provisioning chain: hardening → tailscale → docker → swarm → komodo |
+| `ansible/{hardening,tailscale,docker,swarm,komodo}.yml` | the five links, each also runnable standalone |
+| `ansible/group_vars/vms/`     | group vars, incl. SOPS-encrypted secrets             |
 | `ansible/templates/`          | periphery config + systemd unit (rendered by komodo.yml) |
 | `komodo/*.toml`               | Komodo resources as code, synced by a ResourceSync   |
 | `stacks/`                     | swarm compose files referenced by `komodo/stacks.toml` |
@@ -54,10 +54,10 @@ tofu -chdir=tofu apply         # waits for the guest agent to report the VM's IP
 
 # 3. check Ansible can reach it:
 cd ansible
-ansible-galaxy collection install -r requirements.yml   # pins ansible.utils
+ansible-galaxy collection install -r requirements.yml   # pins ansible.utils + community.sops
 ansible-playbook ping.yml
 
-# 4. provision it (tailnet -> Docker -> Swarm -> Komodo periphery):
+# 4. provision it (hardening -> tailnet -> Docker -> Swarm -> Komodo periphery):
 ansible-playbook site.yml --limit <vm-name>
 ```
 
@@ -156,6 +156,9 @@ token registered in Komodo as git account `DracoBlackBelt`, and the single
 
 - The PVE API token comes from `TF_VAR_pve_api_token` in the environment, never
   from `terraform.tfvars`; a variable `validation` fails `tofu plan` if it is unset.
+- Secrets are SOPS/age-encrypted in `ansible/group_vars/vms/secrets.sops.yml`; the age
+  private key lives outside the repo (`~/.config/sops/age/keys.txt`). Edit with
+  `sops ansible/group_vars/vms/secrets.sops.yml`.
 - VM disks must be >= 16 GiB (the template's disk size; Proxmox cannot shrink
   a cloned volume).
 - After sealing, template 9000 is never booted again — to change its contents,

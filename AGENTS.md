@@ -4,7 +4,7 @@ IaC for a homelab: on a Proxmox VE host (node `prox`), OpenTofu creates Debian 1
 cloned from a hand-built golden template, and Ansible configures those VMs over SSH.
 
 The connection plumbing is proven against the live host, and the guest-config chain
-(tailscale -> docker -> swarm -> komodo periphery, `ansible/site.yml`) is defined here,
+(hardening -> tailscale -> docker -> swarm -> komodo periphery, `ansible/site.yml`) is defined here,
 along with the Komodo resources themselves (`komodo/*.toml`, synced from git by a
 ResourceSync). No VM *instances* live in git, though: `var.vms` defaults to `{}`; VMs
 are declared only in the gitignored `tofu/terraform.tfvars`.
@@ -24,11 +24,12 @@ tofu -chdir=tofu output -json
 Ansible — must run from `ansible/` (`ansible.cfg` points at `inventory/` relatively):
 
 ```sh
-cd ansible && ansible-galaxy collection install -r requirements.yml   # required: pins ansible.utils
+cd ansible && ansible-galaxy collection install -r requirements.yml   # required: ansible.utils + community.sops
 cd ansible && ansible-inventory --graph                               # what tofu exposes
 cd ansible && ansible-playbook ping.yml                               # smoke-test the chain
 cd ansible && ansible-playbook ping.yml --limit <vm-name>
-cd ansible && ansible-playbook site.yml                               # tailscale -> docker -> swarm -> komodo, in order
+cd ansible && ansible-playbook site.yml                               # hardening -> tailscale -> docker -> swarm -> komodo, in order
+cd ansible && ansible-playbook hardening.yml                          # apt policy: security upgrades, never auto-reboot
 cd ansible && ansible-playbook tailscale.yml                          # install + join tailnet
 cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
 cd ansible && ansible-playbook swarm.yml                              # converge the swarm (all managers)
@@ -36,15 +37,18 @@ cd ansible && ansible-playbook komodo.yml                             # peripher
 cd ansible && ansible-lint                                            # lint (brew install ansible-lint)
 ```
 
-Secrets live in vault-encrypted files under `group_vars/` (e.g. `vms/vault.yml`);
-`ansible.cfg` reads the password from `../.vault-pass` (gitignored) — create it once per machine.
+Secrets live in SOPS-encrypted files under `group_vars/` (e.g.
+`vms/secrets.sops.yml`), decrypted as they load by the `community.sops` vars plugin
+(`vars_plugins_enabled` in `ansible.cfg`). The age private key stays outside the repo
+(`~/.config/sops/age/keys.txt`); edit with `sops ansible/group_vars/vms/secrets.sops.yml`.
 
 Lint is `ansible-lint` (`ansible/.ansible-lint`, `moderate` profile). There is no unit-test
 suite, so `ansible/ping.yml` is still the closest thing to a test.
-`requirements.yml` pins `ansible.utils`: `swarm.yml`'s ingress/LAN overlap check uses its
-`in_network` test (CIDR math Jinja cannot express), so the install step is required, not a
-no-op. Every module is otherwise `ansible.builtin`, and the plays need **ansible-core >= 2.21**
-for the `deb822_repository`/`systemd_service` names, so don't rely on whatever Homebrew's
+`requirements.yml` pins two collections: `ansible.utils` (`swarm.yml`'s ingress/LAN overlap
+check uses its `in_network` test — CIDR math Jinja cannot express) and `community.sops`
+(the vars plugin that decrypts the `*.sops.yml` secrets), so the install step is required,
+not a no-op. Every module is otherwise `ansible.builtin`, and the plays need **ansible-core
+>= 2.21** for the `deb822_repository`/`systemd_service` names, so don't rely on whatever Homebrew's
 ansible package happens to bundle.
 
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
@@ -110,7 +114,7 @@ The chain is only visible across files:
   `ansible_become: true` — Ansible connects as `debian` (sourced once from
   `local.vm_username` in `tofu/locals.tf` and exported via `vm_inventory`) and escalates;
   escalation is deliberately an Ansible concern, not part of the tofu output.
-  `vault.yml` (ansible-vault encrypted) holds `tailscale_auth_key` (`tailscale.yml`)
+  `secrets.sops.yml` (SOPS/age encrypted) holds `tailscale_auth_key` (`tailscale.yml`)
   and `komodo_onboarding_key` (`komodo.yml`); `all.yml` also pins `komodo_core_address`.
 - **`ansible/tailscale.yml`** installs the package from Tailscale's official apt repo
   (`deb822_repository`, key fetched from `pkgs.tailscale.com`) and registers each VM with
@@ -120,11 +124,18 @@ The chain is only visible across files:
   stale file from an interrupted run), never argv, `no_log`'d.
   `tailscale up` is gated on `tailscale status` so reruns don't re-present the key;
   Tailscale SSH is enabled (`--ssh`). Auth keys expire after at most 90 days — swap in a
-  fresh one with `ansible-vault edit group_vars/vms/vault.yml`; ephemeral nodes GC'd after
+  fresh one with `sops ansible/group_vars/vms/secrets.sops.yml`; ephemeral nodes GC'd after
   long shutdowns re-register with the same key.
+- **`ansible/hardening.yml`** pins the guest APT policy: security upgrades stay enabled
+  (`20auto-upgrades`) but `Unattended-Upgrade::Automatic-Reboot` is forced `false`
+  (`51-…`, which sorts after the image's `50-`). All nodes are raft quorum members, so
+  kernel reboots are manual and staggered, never automatic/together. This is the play that
+  will own host-firewall rules when they land.
 - **`ansible/docker.yml`** installs Docker Engine + compose/buildx plugins from Docker's
-  official apt repo (same `deb822_repository` pattern). Periphery acts on this host daemon,
-  so it is a prerequisite for Komodo managing containers/stacks on a VM.
+  official apt repo (same `deb822_repository` pattern) and pins `/etc/docker/daemon.json`
+  for log rotation (`json-file`, `max-size=10m`, `max-file=3`) — unbounded json-file logs
+  are what actually fills the small VM disks. Periphery acts on this host daemon, so it is
+  a prerequisite for Komodo managing containers/stacks on a VM.
 - **`ansible/swarm.yml`** converges the Docker Swarm: probes each node's
   `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (komodo-srv-01) if inactive,
   then joins every other node with the **manager** token — fetched (`no_log`) only when a
@@ -171,7 +182,7 @@ The chain is only visible across files:
   `vms/all.yml`, hence the tailscale-then-komodo order in `site.yml`); Core never needs to
   reach VMs, port 8120 stays closed. Each VM self-onboards into Core as a Server named
   `{{ inventory_hostname }}` (== the tailscale hostname) using one reusable onboarding key
-  from `vms/vault.yml` — create it in the Komodo UI (Servers → Onboarding Keys). The key is
+  from `vms/secrets.sops.yml` — create it in the Komodo UI (Servers → Onboarding Keys). The key is
   only consumed until the Server exists; steady-state auth is the keypair Periphery
   auto-generates in `/etc/komodo/keys/`. The key still stays in the 0600 config on disk
   afterward (unused) — a deliberate tradeoff, not an oversight; removing it is a manual edit,

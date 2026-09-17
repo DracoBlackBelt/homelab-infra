@@ -1,0 +1,9 @@
+# SOPS creation rules: which key encrypts which files.
+#
+# The age PRIVATE key never lives in the repo -- it stays at
+# ~/.config/sops/age/keys.txt (or $SOPS_AGE_KEY_FILE) on the machine running
+# Ansible, so only this public recipient is committed. New secrets:
+#   sops ansible/group_vars/vms/secrets.sops.yml   # creates/edits in place
+creation_rules:
+  - path_regex: '\.sops\.ya?ml$'
+    age: age12f27dnat4w09xcad3wrwxj0e84zgd5vupwc996gw4u42tdjaas6qj5yu7m

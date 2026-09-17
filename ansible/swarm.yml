@@ -149,6 +149,9 @@
           overlay --subnet 10.10.0.0/24 --gateway 10.10.0.1 ingress`.
       run_once: true
 
+    # A dockerd restart (e.g. a daemon.json change) can briefly leave nodes not
+    # yet re-registered as Ready. Wait for the cluster to settle before judging
+    # it, so a restart doesn't fail the asserts below.
     - name: List swarm nodes
       ansible.builtin.command: >-
         docker node ls --format
@@ -156,6 +159,12 @@
       delegate_to: "{{ swarm_init_manager }}"
       run_once: true
       register: nodes
+      until: >-
+        (nodes.stdout_lines | select('ne', '') | map('from_json')
+         | selectattr('Status', 'equalto', 'Ready') | list | length)
+        == (nodes.stdout_lines | select('ne', '') | list | length)
+      retries: 18
+      delay: 5
       changed_when: false
 
     - name: Collect Ready+Active managers

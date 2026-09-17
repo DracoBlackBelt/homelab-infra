@@ -1,14 +1,15 @@
 # Install Tailscale from the official apt repo and join every VM to the tailnet.
 #
-# The auth key lives in group_vars/vms/vault.yml (encrypted; password file at
-# repo root, see ansible.cfg). Generate a key that is REUSABLE + EPHEMERAL at
+# The auth key lives in group_vars/vms/secrets.sops.yml (SOPS/age encrypted; the
+# age key stays outside the repo -- see ansible.cfg and AGENTS.md). Generate a key
+# that is REUSABLE + EPHEMERAL at
 # https://login.tailscale.com/admin/settings/keys :
 #   - reusable:  one key registers every current and future VM
 #   - ephemeral: each node is removed from the tailnet after it has been
 #     offline long enough; rerunning this playbook re-registers it with the
-#     same key -- no vault edit needed
+#     same key -- no secret edit needed
 # Auth keys themselves expire after at most 90 days; swap in a fresh key with
-#   cd ansible && ansible-vault edit group_vars/vms/vault.yml
+#   sops ansible/group_vars/vms/secrets.sops.yml
 # when that happens (already-registered nodes are unaffected until their own
 # 180-day node-key expiry).
 #
@@ -59,11 +60,11 @@
         enabled: true
       tags: install
 
-    - name: Verify a real auth key has been vaulted
+    - name: Verify a real auth key has been configured
       ansible.builtin.assert:
         that: tailscale_auth_key is search('tskey-auth-') and 'REPLACE-ME' not in tailscale_auth_key
         quiet: true
-        fail_msg: "Replace the placeholder first: cd ansible && ansible-vault edit group_vars/vms/vault.yml"
+        fail_msg: "Replace the placeholder first: sops ansible/group_vars/vms/secrets.sops.yml"
       tags: register
 
     - name: Check current Tailscale login state

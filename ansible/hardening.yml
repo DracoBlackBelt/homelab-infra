@@ -1,0 +1,35 @@
+# Host hygiene for every VM. Currently this pins the APT auto-upgrade policy:
+# the Debian cloud image already enables unattended-upgrades for security
+# updates, but its reboot behaviour is left at the package default. Pinning it
+# here means a future image change can't silently start rebooting swarm
+# managers -- all nodes are raft quorum members, so they are rebooted manually
+# and staggered, never together.
+#
+# Usage: cd ansible && ansible-playbook hardening.yml
+- name: Host hygiene
+  hosts: vms
+  gather_facts: false
+
+  tasks:
+    - name: Keep unattended security upgrades enabled
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          // Managed by Ansible (ansible/hardening.yml) -- local edits are overwritten.
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Named 51- so it sorts after the image's 50unattended-upgrades and wins.
+    - name: Never auto-reboot a swarm node
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/51-unattended-upgrades-reboot.conf
+        content: |
+          // Managed by Ansible (ansible/hardening.yml) -- local edits are overwritten.
+          // Reboot manually, one manager at a time, to protect raft quorum.
+          Unattended-Upgrade::Automatic-Reboot "false";
+        owner: root
+        group: root
+        mode: "0644"
