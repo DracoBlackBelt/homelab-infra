@@ -10,6 +10,11 @@ services:
       replicas: 3
       restart_policy:
         condition: any
+      resources:
+        limits:
+          memory: 32M
+        reservations:
+          memory: 16M
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.whoami.rule=Host(`whoami.swarm.huisman.dev`)"

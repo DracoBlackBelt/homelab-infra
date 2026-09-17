@@ -13,8 +13,11 @@
 # that mistake caused exit 127) forwarding the command: flags via "$@" (the
 # literal "sh" arg is $0 so they all survive). All $ must be doubled.
 #
-# acme.json lives on a node-local volume: each of the 3 replicas issues the
-# wildcard once and renews ~every 60d -- trivially inside LE's 50 certs/week.
+# acme.json lives on a node-local volume, so each of the 3 replicas holds its
+# own copy (sharing one file across replicas would need a distributed lock).
+# The cost is 3 identical wildcard certs per issuance -- that is the Duplicate
+# Certificate limit (5/week), NOT the 50/week registered-domain limit, and 3
+# leaves headroom as long as replicas aren't re-issuing constantly.
 services:
   traefik:
     image: traefik:v3.7.13
@@ -61,6 +64,19 @@ services:
       # to this one cert)
       - --accesslog=true
       - --log.level=INFO
+      # Serves /ping on the internal `traefik` entrypoint (:8080, not
+      # published); v3 auto-creates that entrypoint when ping is enabled.
+      - --ping=true
+    # Swarm ignores the image's own HEALTHCHECK, so declare it here.
+    # `traefik healthcheck --ping` recreates the internal entrypoint itself and
+    # HEADs it -- no other flag needed. Swarm surfaces health but does NOT
+    # restart an unhealthy task; this is for status and rolling updates.
+    healthcheck:
+      test: ['CMD', 'traefik', 'healthcheck', '--ping']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     deploy:
       # global: one task per node, so the mesh never forwards to a node
       # without an edge; node.role keeps future workers out (no cluster API).
@@ -70,6 +86,13 @@ services:
           - node.role == manager
       restart_policy:
         condition: any
+      # Light, but it runs one task per node -- cap it so a leak can't take a
+      # manager down.
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
 
 networks:
   proxy:

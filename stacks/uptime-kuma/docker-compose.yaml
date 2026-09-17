@@ -12,6 +12,15 @@ services:
       - uptime-kuma-data:/app/data
     networks:
       - proxy
+    # Matches the image's own HEALTHCHECK (compiled Go binary at
+    # /app/extra/healthcheck); swarm ignores image-level checks. The 180s
+    # start_period covers the first-run SQLite init.
+    healthcheck:
+      test: ['CMD', 'extra/healthcheck']
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 180s
     deploy:
       replicas: 1
       placement:
@@ -19,6 +28,11 @@ services:
           - node.hostname == komodo-srv-01
       restart_policy:
         condition: any
+      resources:
+        limits:
+          memory: 320M
+        reservations:
+          memory: 128M
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.uptime-kuma.rule=Host(`kuma.swarm.huisman.dev`)"

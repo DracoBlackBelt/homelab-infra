@@ -36,7 +36,7 @@ file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
 
 [[stack]]
 name = "traefik"
-description = "Edge router: swarm provider + Host() routing on :80 (global, all managers)"
+description = "Edge router: swarm provider + Host() routing on websecure (:443, TLS), global on all managers"
 tags = ["swarm", "infra"]
 deploy = true
 

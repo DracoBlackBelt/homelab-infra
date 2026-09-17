@@ -129,14 +129,17 @@ Everything is driven by git: edit, push, sync, deploy.
   dance). lego reads the token from env while swarm secrets mount as files,
   so the service entrypoint wraps `/traefik "$@"` to export
   `CF_DNS_API_TOKEN` from `/run/secrets/…`. Each replica keeps its own
-  `acme.json` in the node-local `traefik-acme` volume — three issuances per
-  renewal cycle, far under LE's limits. Routers: `websecure` +
-  `tls.certresolver=le`.
+  `acme.json` in the node-local `traefik-acme` volume — three identical certs
+  per issuance, inside LE's 5/week Duplicate Certificate limit. Routers:
+  `websecure` + `tls.certresolver=le`.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
 synced TOML is plaintext in git; secrets only as Komodo-managed Swarm secrets
-referenced from compose; bind mounts to VM paths like `/data/...` are fine.
+referenced from compose — create each one first (Komodo UI → Swarm `homelab` →
+Secrets), e.g. `cloudflare_api_token` for the edge and `freshrss_db_password`
+for the DB-backed stack, since an `external: true` secret that does not exist
+fails the deploy; bind mounts to VM paths like `/data/...` are fine.
 Apps with a database (see `stacks/freshrss`): the DB joins only a stack-local
 network (never `proxy`, no router, no published port — structurally private);
 name it after its service (e.g. `db`) for DNS; pin both the DB and its volume
