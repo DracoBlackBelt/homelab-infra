@@ -45,12 +45,14 @@ the plays use only `ansible.builtin` modules and need **ansible-core >= 2.21** f
 ansible package happens to bundle.
 
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
-`address`, optional `cores`/`memory`/`disk_size`), then `tofu -chdir=tofu apply` followed
-by `cd ansible && ansible-playbook site.yml --limit <name>`. The dynamic inventory picks
-the VM up automatically — nothing else to update; `site.yml` even joins it to the swarm
-as a new manager (add its name to `komodo/swarms.toml` `servers` only for read-path
-redundancy in Core). `disk_size` must be >= 16: the
-template's volume is 16 GiB and a cloned disk cannot shrink (smaller values fail at apply).
+`address`, optional `cores`/`memory`/`disk_size`/`gateway`), then `tofu -chdir=tofu apply`
+followed by `cd ansible && ansible-playbook site.yml --limit <name>`. The dynamic
+inventory picks the VM up automatically — nothing else to update; `site.yml` even joins
+it to the swarm as a new manager (add its name to `komodo/swarms.toml` `servers` only for
+read-path redundancy in Core). `disk_size` must be >= 16: the template's volume is 16
+GiB and a cloned disk cannot shrink (smaller values fail at apply). `address` must be
+CIDR (`10.0.0.41/24`), enforced by a variable `validation`. Map key must equal `name`,
+enforced by a `lifecycle.precondition`.
 
 **Adding an app:** `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, pinned
 image tags) + one `[[stack]]` block in `komodo/stacks.toml` targeting
@@ -183,8 +185,11 @@ The chain is only visible across files:
 
 ## Gotchas
 
-- `tofu/terraform.tfvars` (gitignored) holds the real Proxmox API token, endpoint and the
-  `vms` map — keep it that way; never commit state files or tfvars.
+- `tofu/terraform.tfvars` (gitignored) holds the Proxmox endpoint and the `vms` map —
+  keep it that way; never commit state files or tfvars. The PVE API token is **not**
+  here: export `TF_VAR_pve_api_token` in the shell (or source from a gitignored env
+  file) before running tofu. A `validation` block fails plan with a clear message if
+  the variable is empty.
 - After the golden template is sealed it must **never be booted again** (cloud-init would
   re-bake an instance id); it can only be cloned. To change its contents, destroy 9000
   and rebuild per `docs/golden-template.md`.

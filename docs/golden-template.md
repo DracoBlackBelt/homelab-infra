@@ -31,6 +31,8 @@ them. These must keep matching `qm config 9000`:
 | `cpu`       | `host`              | provider default is qemu64                          |
 | `scsi0`     | disk on `fastpool`  | the disk block is matched by interface name         |
 | `scsihw`    | `virtio-scsi-single`| tofu pins this; iothread is only legal with it      |
+| `boot`      | `order=scsi0`       | tofu pins `boot_order = ["scsi0"]`; without it the cloud-init drive is a viable boot target |
+| `net0`      | `virtio,bridge=vmbr0` | tofu pins `model = "virtio"` explicitly so a template-side change is caught at plan time |
 | `ide2`      | cloudinit drive     | per-VM IP, hostname and SSH key come from cloud-init |
 | `agent`     | `enabled=1`         | tofu waits on the agent for a real IP before it calls a VM created |
 

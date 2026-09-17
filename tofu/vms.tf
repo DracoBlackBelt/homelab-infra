@@ -11,21 +11,26 @@ variable "vms" {
     vm_id     = number
     name      = string
     address   = string
+    gateway   = optional(string, "10.0.0.1")
     cores     = optional(number, 1)
     memory    = optional(number, 1024)
     disk_size = optional(number, 16)
   }))
 
   default = {}
+
+  validation {
+    condition     = alltrue([for v in var.vms : can(cidrhost(v.address, 0))])
+    error_message = "Each vm.address must be CIDR, e.g. \"10.0.0.41/24\"."
+  }
 }
 
 resource "proxmox_virtual_environment_vm" "vms" {
   for_each = var.vms
 
-  name        = each.value.name
-  description = "Managed by OpenTofu"
-  node_name   = "prox"
-  vm_id       = each.value.vm_id
+  name      = each.value.name
+  node_name = "prox"
+  vm_id     = each.value.vm_id
 
   clone {
     vm_id = data.proxmox_vm.golden_template.id
@@ -75,6 +80,11 @@ resource "proxmox_virtual_environment_vm" "vms" {
   # clones off it, whatever the template says.
   scsi_hardware = "virtio-scsi-single"
 
+  # Pinned: a clone inherits boot order from the template, but the template's
+  # --boot order=scsi0 (docs/golden-template.md) is the only thing keeping it
+  # off ide2 (the cloud-init drive) here. Explicit beats implicit.
+  boot_order = ["scsi0"]
+
   # scsi0 because that is where the template's disk lives and what its boot
   # order points at. discard lets a guest fstrim return blocks to the ZFS pool,
   # which is also what makes the template's fstrim_cloned_disks=1 do anything.
@@ -91,6 +101,7 @@ resource "proxmox_virtual_environment_vm" "vms" {
 
   network_device {
     bridge = "vmbr0"
+    model  = "virtio"
   }
 
   initialization {
@@ -99,7 +110,7 @@ resource "proxmox_virtual_environment_vm" "vms" {
     ip_config {
       ipv4 {
         address = each.value.address
-        gateway = "10.0.0.1"
+        gateway = each.value.gateway
       }
     }
 
@@ -113,6 +124,10 @@ resource "proxmox_virtual_environment_vm" "vms" {
     precondition {
       condition     = data.proxmox_vm.golden_template.template
       error_message = "vmid ${var.template_vm_id} exists but is not a Proxmox template -- run `qm template ${var.template_vm_id}`, or see docs/golden-template.md."
+    }
+    precondition {
+      condition     = each.key == each.value.name
+      error_message = "vm map key (${each.key}) must equal vm.name (${each.value.name}); pick one or the other."
     }
   }
 }
