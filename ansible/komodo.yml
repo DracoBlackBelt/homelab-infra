@@ -13,6 +13,12 @@
 # every current and future VM self-onboards as a Server named after its
 # inventory hostname -- which tailscale.yml sets as the tailnet hostname too.
 #
+# The onboarding key is only *consumed* until the Server exists, but this play
+# re-renders the config every run, so the key stays in the 0600 file on disk,
+# unused. That is a deliberate tradeoff (see templates/periphery.config.toml.j2):
+# removing it is a manual edit, and re-onboarding a deleted Server would then
+# need a fresh key.
+#
 # Version updates: bump komodo_version + the release checksums below, rerun.
 #
 # Usage:
@@ -42,9 +48,9 @@
     - name: Verify the Core address and a real onboarding key are configured
       ansible.builtin.assert:
         that:
-          - komodo_core_address is not search('REPLACE-ME')
-          - komodo_onboarding_key is not search('REPLACE-ME')
-          - komodo_onboarding_key | length > 0
+          - komodo_core_address is defined and komodo_core_address is not search('REPLACE-ME')
+          - komodo_onboarding_key is defined and komodo_onboarding_key is not search('REPLACE-ME')
+          - (komodo_onboarding_key | default('')) | length > 0
         quiet: true
         fail_msg: >-
           Set komodo_core_address in group_vars/vms/all.yml and the onboarding
@@ -115,6 +121,9 @@
     - name: Apply pending restarts before verifying
       ansible.builtin.meta: flush_handlers
 
+    # systemctl is-active, not ansible.builtin.systemd_service: this is a
+    # read-only verification (retry until active) -- the start already happened
+    # above, and a state:started module would report change, not health.
     - name: Wait for the agent to settle, then check it is active
       ansible.builtin.command: systemctl is-active periphery
       register: periphery_active

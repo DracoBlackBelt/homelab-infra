@@ -9,8 +9,8 @@
   gather_facts: false
 
   tasks:
-    - name: Echo a greeting
-      ansible.builtin.command: hostnamectl --static status
+    - name: Report the hostname
+      ansible.builtin.command: hostnamectl hostname
       register: hostinfo
       changed_when: false
 

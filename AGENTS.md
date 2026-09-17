@@ -24,7 +24,7 @@ tofu -chdir=tofu output -json
 Ansible — must run from `ansible/` (`ansible.cfg` points at `inventory/` relatively):
 
 ```sh
-cd ansible && ansible-galaxy collection install -r requirements.yml   # one-time
+cd ansible && ansible-galaxy collection install -r requirements.yml   # required: pins ansible.utils
 cd ansible && ansible-inventory --graph                               # what tofu exposes
 cd ansible && ansible-playbook ping.yml                               # smoke-test the chain
 cd ansible && ansible-playbook ping.yml --limit <vm-name>
@@ -33,15 +33,18 @@ cd ansible && ansible-playbook tailscale.yml                          # install 
 cd ansible && ansible-playbook docker.yml                             # Docker Engine + compose plugin
 cd ansible && ansible-playbook swarm.yml                              # converge the swarm (all managers)
 cd ansible && ansible-playbook komodo.yml                             # periphery agent, dials Core
+cd ansible && ansible-lint                                            # lint (brew install ansible-lint)
 ```
 
 Secrets live in vault-encrypted files under `group_vars/` (e.g. `vms/vault.yml`);
 `ansible.cfg` reads the password from `../.vault-pass` (gitignored) — create it once per machine.
 
-There is no lint or unit-test suite; `ansible/ping.yml` is the closest thing to a test.
-`requirements.yml` is the install contract for collection deps — currently empty:
-the plays use only `ansible.builtin` modules and need **ansible-core >= 2.21** for the
-`deb822_repository`/`systemd_service` names, so don't rely on whatever Homebrew's
+Lint is `ansible-lint` (`ansible/.ansible-lint`, `moderate` profile). There is no unit-test
+suite, so `ansible/ping.yml` is still the closest thing to a test.
+`requirements.yml` pins `ansible.utils`: `swarm.yml`'s ingress/LAN overlap check uses its
+`in_network` test (CIDR math Jinja cannot express), so the install step is required, not a
+no-op. Every module is otherwise `ansible.builtin`, and the plays need **ansible-core >= 2.21**
+for the `deb822_repository`/`systemd_service` names, so don't rely on whatever Homebrew's
 ansible package happens to bundle.
 
 **Adding a VM:** one entry in the `vms` map in `tofu/terraform.tfvars` (`vm_id`, `name`,
@@ -111,7 +114,8 @@ The chain is only visible across files:
   (`deb822_repository`, key fetched from `pkgs.tailscale.com`) and registers each VM with
   one reusable+ephemeral auth key. The CLI does not read `TS_AUTHKEY` (that's
   containerboot-only), so the key goes through a mode-0600 temp file
-  (`--auth-key=file://…`, removed in the block's `always`), never argv, `no_log`'d.
+  (`--auth-key=file://…`, removed in the block's `always`, with a pre-task that clears any
+  stale file from an interrupted run), never argv, `no_log`'d.
   `tailscale up` is gated on `tailscale status` so reruns don't re-present the key;
   Tailscale SSH is enabled (`--ssh`). Auth keys expire after at most 90 days — swap in a
   fresh one with `ansible-vault edit group_vars/vms/vault.yml`; ephemeral nodes GC'd after
@@ -121,19 +125,23 @@ The chain is only visible across files:
   so it is a prerequisite for Komodo managing containers/stacks on a VM.
 - **`ansible/swarm.yml`** converges the Docker Swarm: probes each node's
   `LocalNodeState`, `docker swarm init`s on `swarm_init_manager` (komodo-srv-01) if inactive,
-  then joins every other node with the **manager** token (fetched `no_log`) — all nodes are
-  managers, so 3 nodes = raft quorum that survives one loss. Advertise/join on the LAN
-  addresses (vmbr0), never the tailnet. It never inits over, re-joins, or `swarm leave`s
+  then joins every other node with the **manager** token — fetched (`no_log`) only when a
+  node is actually `inactive` — all nodes are managers, so 3 nodes = raft quorum that
+  survives one loss. Both init and join pass `--advertise-addr`, so nodes advertise on the
+  LAN (vmbr0), never the tailnet. It never inits over, re-joins, or `swarm leave`s
   an `active` node, and aborts rather than touching a `pending` one. The header carries the
   lost-bootstrap-manager runbook. It also loads+persists the `openvswitch` kernel module
   (swarm's ingress datapath; Debian never loads it and published ports blackhole without
-  it) and inits with `--default-addr-pool 10.10.0.0/16`, because swarm's stock ingress
-   subnet (10.0.0.0/24) collides with the LAN and silently breaks the routing mesh — a
-   tripwire assert re-checks the running cluster. Komodo deliberately does not own
-   membership — its Swarm resource only *talks to* managers — which is why this play exists.
-   It also ensures the cluster-wide `proxy` overlay (idempotent create) that Traefik and
-   all routed apps share: stack-created networks get a `<stack>_` prefix and thus can't
-   be shared across stacks, so no stack may own it.
+  it; the consequent dockerd restart is throttled to one node at a time) and inits with
+  `--default-addr-pool 10.10.0.0/16`, because swarm's stock ingress subnet (10.0.0.0/24)
+  collides with the LAN and silently breaks the routing mesh — a tripwire assert re-checks
+  the running cluster with `ansible.utils.in_network` (the only non-builtin dependency).
+  The manager assert is scope-aware: it fails only for nodes the run touched, so `--limit`
+  keeps working while a newly declared VM is still unprovisioned. Komodo deliberately does
+  not own membership — its Swarm resource only *talks to* managers — which is why this play
+  exists. It also ensures the cluster-wide `proxy` overlay (inspect, create only if missing)
+  that Traefik and all routed apps share: stack-created networks get a `<stack>_` prefix and
+  thus can't be shared across stacks, so no stack may own it.
 - **`stacks/traefik/`** is the edge router: pinned Traefik v3 with the native **swarm
    provider** (`exposedbydefault=false`), reading routing from `deploy.labels` on swarm
    services — so an app's route is defined in the app's own compose file, and adding one
@@ -163,7 +171,9 @@ The chain is only visible across files:
   `{{ inventory_hostname }}` (== the tailscale hostname) using one reusable onboarding key
   from `vms/vault.yml` — create it in the Komodo UI (Servers → Onboarding Keys). The key is
   only consumed until the Server exists; steady-state auth is the keypair Periphery
-  auto-generates in `/etc/komodo/keys/`. The pinned `komodo_version` and
+  auto-generates in `/etc/komodo/keys/`. The key still stays in the 0600 config on disk
+  afterward (unused) — a deliberate tradeoff, not an oversight; removing it is a manual edit,
+  and re-onboarding a deleted Server would then need a fresh key. The pinned `komodo_version` and
   `komodo_release_checksums` in the play must change **together** (checksums are from the
   release page; `get_url` fails the check otherwise).
 

@@ -73,10 +73,23 @@
       failed_when: tailscale_status.rc not in (0, 1)  # rc 1 = logged out
       tags: register
 
+    # Clean up after an interrupted run: the key is removed in the block's
+    # `always`, but a SIGKILL between write and cleanup would leave it behind.
+    - name: Remove any stale auth-key temp file
+      ansible.builtin.file:
+        path: /root/.tailscale-authkey
+        state: absent
+      changed_when: false
+      tags: register
+
     - name: Register the node with the tailnet
+      # search() on the raw JSON instead of from_json: on rc 1 (logged out) the
+      # stdout can be empty, and an exception there would abort the play rather
+      # than just re-registering the node.
       when: >-
         tailscale_status.rc != 0
-        or (tailscale_status.stdout | from_json).BackendState not in ['Running', 'Starting']
+        or tailscale_status.stdout is not search('"BackendState"\s*:\s*"(Running|Starting)"')
+      tags: register
       block:
         # The CLI (1.102) does NOT read a TS_AUTHKEY env var -- only
         # containerboot/tsnet do. --auth-key=file:// keeps the key out of argv
@@ -89,7 +102,7 @@
             mode: "0600"
           no_log: true
 
-        - name: tailscale up
+        - name: Bring up tailscale
           ansible.builtin.command:
             cmd: >-
               tailscale up
@@ -102,7 +115,6 @@
           ansible.builtin.file:
             path: /root/.tailscale-authkey
             state: absent
-      tags: register
 
     - name: Ensure Tailscale SSH stays enabled across re-registrations
       ansible.builtin.command: tailscale set --ssh

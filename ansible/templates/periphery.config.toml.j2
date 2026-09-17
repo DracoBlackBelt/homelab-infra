@@ -19,6 +19,9 @@ connect_as = "{{ inventory_hostname }}"
 ## Reusable Server Onboarding Key (Komodo UI -> Servers -> Onboarding Keys).
 ## Only consumed while the Server does not exist in Core yet; afterwards
 ## authentication uses the auto-generated keypair in {{ komodo_root_directory }}/keys/.
+## It is deliberately left on disk after onboarding (unused). Remove this line
+## by hand to get it off the host -- re-onboarding a deleted Server then needs
+## a fresh key.
 ## Env: PERIPHERY_ONBOARDING_KEY
 onboarding_key = "{{ komodo_onboarding_key }}"
 

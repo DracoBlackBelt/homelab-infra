@@ -8,7 +8,11 @@
 # Each playbook can also be run standalone. Usage:
 #   cd ansible && ansible-playbook site.yml
 #   cd ansible && ansible-playbook site.yml --limit komodo-srv-01
-- import_playbook: tailscale.yml
-- import_playbook: docker.yml
-- import_playbook: swarm.yml
-- import_playbook: komodo.yml
+- name: Join the tailnet
+  import_playbook: tailscale.yml
+- name: Install Docker Engine
+  import_playbook: docker.yml
+- name: Form the Docker Swarm
+  import_playbook: swarm.yml
+- name: Install Komodo Periphery
+  import_playbook: komodo.yml

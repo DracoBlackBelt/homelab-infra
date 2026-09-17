@@ -1,0 +1,14 @@
+---
+# Run from ansible/:  ansible-lint      (install: brew install ansible-lint)
+#
+# "moderate" catches syntax/schema/fqcn mistakes without demanding the
+# role/file layout this small, single-file-play tree deliberately lacks.
+profile: moderate
+
+# The plays drive the docker/tailscale CLIs directly where no builtin module
+# exists (swarm membership, network create, tailscale), and verify cluster
+# state with separate asserts -- so these are warnings, not failures.
+warn_list:
+  - command-instead-of-module
+  - command-instead-of-shell
+  - no-changed-when

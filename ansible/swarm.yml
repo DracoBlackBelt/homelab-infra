@@ -9,7 +9,7 @@
 # Topology: all vms group members are Swarm MANAGERS (3 nodes = raft quorum
 # that survives losing one). `swarm_init_manager` (group_vars/vms/all.yml) is
 # the bootstrap leader and the join point; every node advertises on its LAN
-# address (vmbr0), not the tailnet -- ports 2377/7946/4780 stay on-LAN.
+# address (vmbr0), not the tailnet -- ports 2377/7946/4789 stay on-LAN.
 #
 # If the init manager dies for real: demote/remove it from another manager
 # (`docker node rm -f <host>`), point `swarm_init_manager` at a survivor, and
@@ -34,6 +34,9 @@
       ansible.builtin.systemd_service:
         name: docker
         state: restarted
+      # One node at a time: restarting dockerd restarts that node's containers,
+      # and every node is a manager -- don't blip the whole cluster at once.
+      throttle: 1
 
   tasks:
     - name: Check loaded kernel modules
@@ -82,17 +85,35 @@
         - inventory_hostname == swarm_init_manager
         - swarm_state.stdout == 'inactive'
 
+    # Only needed if some node is still inactive (fresh cluster, or a new VM).
+    # Gating it keeps a healthy cluster from hard-depending on the bootstrap
+    # manager just to fetch a token nobody will use.
+    - name: Check whether any node still needs to join
+      ansible.builtin.set_fact:
+        swarm_needs_token: >-
+          {{ ansible_play_hosts_all
+             | map('extract', hostvars, 'swarm_state')
+             | map(attribute='stdout')
+             | select('eq', 'inactive') | list | length > 0 }}
+      run_once: true
+
     - name: Fetch the manager join token
       ansible.builtin.command: docker swarm join-token -q manager
       delegate_to: "{{ swarm_init_manager }}"
       run_once: true
+      when: swarm_needs_token
       register: join_token
       changed_when: false
       no_log: true
 
     - name: Join the swarm as a manager
+      # --advertise-addr pins the LAN address explicitly. Without it Docker
+      # infers the advertise IP from the outgoing route, which is the LAN today
+      # but could pick the tailnet interface once we're on it -- and ports
+      # 2377/7946/4789 must stay on-LAN.
       ansible.builtin.command: >-
         docker swarm join --token {{ join_token.stdout | trim }}
+        --advertise-addr {{ ansible_host }}
         {{ hostvars[swarm_init_manager].ansible_host }}:2377
       when:
         - inventory_hostname != swarm_init_manager
@@ -112,16 +133,20 @@
       register: ingress_net
       changed_when: false
 
-    - name: Assert ingress does not collide with the LAN
+    # Real CIDR containment (ansible.utils.in_network, pinned in
+    # requirements.yml) rather than a string-prefix compare: fails if the
+    # ingress subnet swallows any of our LAN addresses.
+    - name: Assert the ingress subnet does not swallow the LAN addresses
       ansible.builtin.assert:
         that: >-
-          (ingress_net.stdout | regex_replace('\\.[0-9]+/.*$', ''))
-          != (hostvars[swarm_init_manager].ansible_host | regex_replace('\\.[0-9]+$', ''))
+          ansible_play_hosts_all | map('extract', hostvars, 'ansible_host')
+          | select('ansible.utils.in_network', ingress_net.stdout)
+          | list | length == 0
         fail_msg: >-
-          Ingress overlay runs on {{ ingress_net.stdout }} -- same /24 as the
-          LAN. Recreate it: remove stacks, `yes | docker network rm ingress`,
-          then `docker network create --ingress --driver overlay --subnet
-          10.10.0.0/24 --gateway 10.10.0.1 ingress`.
+          Ingress overlay runs on {{ ingress_net.stdout }}, which contains one
+          of the LAN addresses. Recreate it: remove stacks, `yes | docker
+          network rm ingress`, then `docker network create --ingress --driver
+          overlay --subnet 10.10.0.0/24 --gateway 10.10.0.1 ingress`.
       run_once: true
 
     - name: List swarm nodes
@@ -144,13 +169,24 @@
              | map(attribute='Hostname') | list }}
       run_once: true
 
-    - name: Assert every node is a working manager
+    # Scope-aware: hard-fail only for nodes this run actually touched. Comparing
+    # against groups['vms'] would break any --limit run while a newly declared
+    # VM is still unprovisioned (e.g. `site.yml --limit <existing>` with a 4th
+    # VM in tfvars).
+    - name: Assert every node in this run is a Ready manager
       ansible.builtin.assert:
-        that: swarm_managers | length == groups['vms'] | length
+        that: (ansible_play_hosts_all | difference(swarm_managers)) | length == 0
         fail_msg: >-
-          Only {{ swarm_managers }} are Ready managers, want
-          {{ groups['vms'] | length }} -- run `docker node ls` on
+          {{ ansible_play_hosts_all | difference(swarm_managers) | join(', ') }}
+          did not come up as Ready managers -- run `docker node ls` on
           {{ swarm_init_manager }} to see who isn't.
+      run_once: true
+
+    - name: Note inventory VMs that are not managers yet
+      ansible.builtin.debug:
+        msg: >-
+          Not yet Ready managers: {{ groups['vms'] | difference(swarm_managers) | join(', ') }}
+      when: groups['vms'] | difference(swarm_managers) | length > 0
       run_once: true
 
     # Cluster-wide overlay shared by the Traefik edge and every routed app.
@@ -158,14 +194,19 @@
     # across stacks, so the stacks declare it `external: true` and this play
     # owns creation (attachable: lets you `docker run` a debug container onto
     # it too). Idempotent: inspect, create only if missing.
-    - name: Ensure the 'proxy' overlay network exists
-      ansible.builtin.shell: >-
-        docker network inspect proxy >/dev/null 2>&1
-        || docker network create --driver overlay --attachable proxy
+    - name: Check for the shared 'proxy' overlay network
+      ansible.builtin.command: docker network inspect proxy
       delegate_to: "{{ swarm_init_manager }}"
       run_once: true
       register: proxy_net
-      changed_when: proxy_net.stdout | trim | length > 0
+      changed_when: false
+      failed_when: false
+
+    - name: Create the shared 'proxy' overlay network
+      ansible.builtin.command: docker network create --driver overlay --attachable proxy
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      when: proxy_net.rc != 0
 
     - name: Swarm status
       ansible.builtin.debug:

@@ -4,4 +4,5 @@
 terraform.tfvars
 *.auto.tfvars
 ansible/inventory/*.cache
+ansible/.ansible/
 .vault-pass

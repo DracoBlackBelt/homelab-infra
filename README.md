@@ -28,7 +28,7 @@ separate plays.
 | ----------------------------- | ---------------------------------------------------- |
 | `tofu/`                       | OpenTofu config; local state in `tofu/terraform.tfstate` |
 | `tofu/vms.tf`                 | VM schema (`var.vms`) + clone resource + inventory output |
-| `tofu/terraform.tfvars`       | gitignored: API token **and where you declare VMs**  |
+| `tofu/terraform.tfvars`       | gitignored: endpoint + **where you declare VMs** (token is env) |
 | `docs/golden-template.md`     | spec for building/sealing template vmid 9000         |
 | `ansible/inventory/tofu.py`   | dynamic inventory: reads `tofu output -json`         |
 | `ansible/ping.yml`            | smoke test for the full chain                        |
@@ -42,6 +42,9 @@ separate plays.
 ## Usage
 
 ```sh
+# the PVE API token is env-only, never in tfvars: see AGENTS.md
+export TF_VAR_pve_api_token='terraform@pve!<tokenid>=<uuid>'
+
 tofu -chdir=tofu init          # once
 tofu -chdir=tofu plan          # "No changes" when var.vms is empty
 
@@ -51,7 +54,7 @@ tofu -chdir=tofu apply         # waits for the guest agent to report the VM's IP
 
 # 3. check Ansible can reach it:
 cd ansible
-ansible-galaxy collection install -r requirements.yml
+ansible-galaxy collection install -r requirements.yml   # pins ansible.utils
 ansible-playbook ping.yml
 
 # 4. provision it (tailnet -> Docker -> Swarm -> Komodo periphery):
@@ -148,6 +151,8 @@ token registered in Komodo as git account `DracoBlackBelt`, and the single
 
 ## Notes
 
+- The PVE API token comes from `TF_VAR_pve_api_token` in the environment, never
+  from `terraform.tfvars`; a variable `validation` fails `tofu plan` if it is unset.
 - VM disks must be >= 16 GiB (the template's disk size; Proxmox cannot shrink
   a cloned volume).
 - After sealing, template 9000 is never booted again — to change its contents,

@@ -1,9 +1,14 @@
-# No Galaxy collections are currently required: every module used by the plays
-# is ansible.builtin. The real dependency is ansible-core >= 2.21 -- the plays
-# use ansible.builtin.deb822_repository and ansible.builtin.systemd_service,
-# which do not exist under those names on older cores.
+# The Galaxy install contract for the plays:
+#   cd ansible && ansible-galaxy collection install -r requirements.yml
 #
-# Add entries here the day a play reaches for a Galaxy collection; this file is
-# the install contract (ansible-galaxy collection install -r requirements.yml).
+# ansible.utils provides the `in_network` test used by swarm.yml's ingress/LAN
+# overlap check -- CIDR math that pure Jinja cannot express. Everything else is
+# ansible.builtin, so this is the only collection dependency.
+#
+# The real ansible-core floor is 2.21: the plays use
+# ansible.builtin.deb822_repository and ansible.builtin.systemd_service, which
+# do not exist under those names on older cores (ansible.utils 6.x needs >= 2.16).
 ---
-collections: []
+collections:
+  - name: ansible.utils
+    version: "6.1.1"
