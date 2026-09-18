@@ -9,6 +9,16 @@
 # FIRST RUN: signups are open so you can create your account, then set
 # SIGNUPS_ALLOWED=false (and re-sync) -- or invite from /admin. Data is a
 # node-local volume, so it is pinned to one node.
+
+# Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
+# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   vaultwarden:
     image: vaultwarden/server:1.37.3
@@ -37,7 +47,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-03
+          - node.labels.pool == "03"
       resources:
         limits:
           memory: 256M
@@ -45,6 +55,8 @@ services:
           memory: 128M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.vaultwarden.rule=Host(`vault.swarm.huisman.dev`)"

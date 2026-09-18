@@ -1,11 +1,21 @@
 # Pinned to the current upstream stable tag (floating ':1' is explicitly not allowed here).
 # Single replica with a named volume: swarm local volumes live on the node the task runs
-# on, so pin it to swarm-wrk-01 -- if the task is ever rescheduled, it comes back with
+# on, so pin it to pool "01" -- if the task is ever rescheduled, it comes back with
 # its data instead of a blank slate on another node (and app tasks stay off the
 # raft managers).
 # Routed by Traefik (Host() on websecure + shared le resolver); no published port.
 # kuma's own monitors can use http://whoami -- cross-stack service DNS over the
 # `proxy` overlay, which never touches Traefik's http->https redirect.
+
+# Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
+# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   uptime-kuma:
     image: louislam/uptime-kuma:2.5.5
@@ -26,9 +36,11 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-01
+          - node.labels.pool == "01"
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       resources:
         limits:
           memory: 320M

@@ -6,17 +6,34 @@
 #
 # Secret plumbing: the Cloudflare token is created OUT of git (Komodo UI ->
 # swarm 'homelab' -> Secrets -> cloudflare_api_token) and referenced here by
-# name only. lego (Traefik's ACME lib) reads the token from the environment
-# while swarm secrets mount as files -- hence the sh wrapper below: export it
-# from /run/secrets, then exec traefik (on PATH -- the Docker Hub image is
-# alpine with /usr/local/bin/traefik, NOT the repo Dockerfile's /traefik;
-# that mistake caused exit 127) forwarding the command: flags via "$@" (the
-# literal "sh" arg is $0 so they all survive). All $ must be doubled.
+# name only. lego (Traefik's ACME lib) resolves any provider variable suffixed
+# `_FILE` by reading that file (it strips one trailing newline), so the token
+# needs no sh wrapper at all -- point CF_DNS_API_TOKEN_FILE at the mounted
+# secret and Traefik reads it natively. This retires the old wrapper, and with
+# it the trap that overriding the entrypoint drops the image CMD (exit 127).
+#
+# The image contract is ENTRYPOINT ["/entrypoint.sh"] + CMD ["traefik"], and a
+# compose `command:` REPLACES the CMD -- so `traefik` must stay the first
+# element below, or /entrypoint.sh tries to exec "--entrypoints..." as a binary.
 #
 # acme.json lives on a node-local volume. There is exactly ONE edge task (see
 # `deploy` below), so there is one copy and one wildcard cert -- no shared
 # storage, no distributed lock, nothing racing on the Cloudflare TXT record.
 # That is the whole reason the edge is replicated:1 and not one task per node.
+#
+# Rolling-update policy. stop-first is REQUIRED here, not cosmetic: under
+# start-first Swarm would briefly run TWO Traefik tasks against one acme.json --
+# the exact ACME race OSS Traefik cannot resolve (only one task may hold the
+# wildcard and answer the DNS-01 challenge). failure_action: rollback (Swarm's
+# default is `pause`) makes a bad deploy revert itself instead of stranding a
+# half-started service.
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   traefik:
     image: traefik:v3.7.13
@@ -30,6 +47,9 @@ services:
       - proxy
     secrets:
       - cloudflare_api_token
+    environment:
+      # lego reads the _FILE form natively; the file is the mounted swarm secret.
+      CF_DNS_API_TOKEN_FILE: /run/secrets/cloudflare_api_token
     ports:
       # ingress mode = routing mesh: node:80/443 answers on all three
       # managers even though traffic may be served by a task on any of them.
@@ -41,12 +61,9 @@ services:
         published: 443
         protocol: tcp
         mode: ingress
-    entrypoint:
-      - /bin/sh
-      - -c
-      - 'export CF_DNS_API_TOKEN="$$(cat /run/secrets/cloudflare_api_token)"; exec traefik "$$@"'
-      - sh
     command:
+      # `traefik` first: compose command replaces the image CMD (see header).
+      - traefik
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       # web exists only to bounce to websecure (currently 308)
@@ -93,6 +110,8 @@ services:
           - node.role == manager
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       resources:
         limits:
           memory: 128M

@@ -19,3 +19,14 @@ swarm_manager_hosts:
   - komodo-srv-01
   - komodo-srv-02
   - komodo-srv-03
+
+# Placement POOLS (swarm.yml labels each node `pool=<value>`; composes pin with
+# `node.labels.pool == "<value>"`). A pool names the worker whose node-LOCAL
+# volumes an app's data lives on, so the pin follows the DATA, not the hostname:
+# replacing a VM means re-labelling the new node, not editing nine services.
+# It is a renaming abstraction, not free HA -- a local volume still cannot move
+# (see README "Placement"). Managers get no pool; Traefik uses node.role.
+swarm_node_labels:
+  swarm-wrk-01: "01"
+  swarm-wrk-02: "02"
+  swarm-wrk-03: "03"

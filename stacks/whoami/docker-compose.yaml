@@ -1,6 +1,22 @@
 # Routed by Traefik: Host() on websecure, TLS via the shared le resolver
 # (one wildcard cert covers *.swarm.huisman.dev). No published port:
 # Traefik reaches whoami:80 over the shared `proxy` overlay.
+#
+# Mesh canary: deliberately NOT pinned and no healthcheck -- the image is
+# `scratch` (no shell, no HTTP client, and no health-check flag), so a container
+# healthcheck is impossible. Its liveness is checked externally by Uptime Kuma.
+# Left free to land on any node on purpose: proving the routing mesh works from
+# every node is the point.
+
+# Rolling updates: stateless, so start-first for zero-downtime.
+# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+x-update-config: &update-config
+  order: start-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   whoami:
     image: traefik/whoami:v1.12.0
@@ -10,6 +26,8 @@ services:
       replicas: 3
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       resources:
         limits:
           memory: 32M

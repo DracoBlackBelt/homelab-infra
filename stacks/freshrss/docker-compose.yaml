@@ -4,7 +4,7 @@
 #    published port, no Traefik router: it is structurally unreachable from
 #    anything except FreshRSS itself.
 #  * FreshRSS data + Postgres data are named volumes, so BOTH services are
-#    pinned to swarm-wrk-03 (the data worker), keeping app tasks off the raft
+#    pinned to pool "03" (the data worker), keeping app tasks off the raft
 #    managers.
 #  * One swarm secret, two consumption patterns: Postgres natively supports
 #    _FILE (POSTGRES_PASSWORD_FILE), FreshRSS does not -- so its entrypoint
@@ -22,6 +22,16 @@
 #    container's cli/create-user.php (Komodo terminal) -- keeps credentials
 #    out of git.
 #  * Resource limits are the swarm-side seatbelts for a 900 MB node.
+
+# Rolling updates: both services own node-local volumes, so stop-first.
+# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   freshrss:
     image: freshrss/freshrss:1.30.0
@@ -74,7 +84,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-03
+          - node.labels.pool == "03"
       resources:
         limits:
           memory: 320M
@@ -82,6 +92,8 @@ services:
           memory: 128M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.freshrss.rule=Host(`rss.swarm.huisman.dev`)"
@@ -115,11 +127,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    # Default is 10s; give Postgres time to shut down cleanly (checkpoint).
+    stop_grace_period: 30s
     deploy:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-03
+          - node.labels.pool == "03"
       resources:
         limits:
           memory: 256M
@@ -127,6 +141,8 @@ services:
           memory: 64M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
 
 networks:
   proxy:

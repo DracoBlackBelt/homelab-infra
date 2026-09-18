@@ -79,7 +79,9 @@ Everything is driven by git: edit, push, sync, deploy.
 1. **Write the compose file** at `stacks/<app>/docker-compose.yaml`. This is a
    swarm stack (`docker stack deploy` semantics), so use `deploy:` for
    replicas, placement constraints and update config — and pin image tags
-   (no `latest`), so re-syncs are deterministic. A webapp gets routed by
+   (no `latest`), so re-syncs are deterministic. Give it a placement **pool**
+   (see "Placement: pools"), and a `update_config`/`rollback_config` anchor
+   (see "Rolling updates"). A webapp gets routed by
    Traefik instead of publishing a port: join the external `proxy` overlay and
    put the routing in `deploy.labels` (see `stacks/whoami` for the canonical
     pattern — `traefik.enable=true`, a `Host(\`<app>.swarm.huisman.dev\`)`
@@ -131,26 +133,93 @@ Everything is driven by git: edit, push, sync, deploy.
 - **Edge shape**: `stacks/traefik` runs **`replicated: 1`** on a manager and
   publishes 80/443 via ingress — the routing mesh still accepts :80/:443 on
   every node and forwards to that one task, so any node IP is a valid entry.
-  One task, not one-per-node, because only one process may drive the ACME
-  (DNS-01) resolver: OSS Traefik has no shared-ACME storage (the v1 KV store
-  was dropped in 2.0), so parallel replicas race on the same Cloudflare TXT
-  record. `web` (:80) is redirect-only.
+   One task, not one-per-node, because only one process may drive the ACME
+   (DNS-01) resolver: OSS Traefik has no shared-ACME storage (the v1 KV store
+   was dropped in 2.0), so parallel replicas race on the same Cloudflare TXT
+   record — the maintainers closed the flat-file requests as unsupported by
+   design. Its `update_config` is therefore stop-first, never start-first.
+   `web` (:80) is redirect-only.
 - **DNS (manual, outside git)**: AdGuard Home (10.0.0.70) → Filters → DNS
-  rewrites: `*.swarm.huisman.dev` → a swarm node LAN IP. One record is
-  enough (ingress accepts on every node and forwards to the edge task); all
-  six node IPs just spread the lookups.
+  rewrites: `*.swarm.huisman.dev` → **three A records, one per manager LAN IP**
+  (10.0.0.41–43), TTL 60s. The mesh accepts :80/:443 on every node and forwards
+  to the single edge task, so multiple node IPs are pure redundancy: if one
+  manager is down, clients still reach the edge through another. A single
+  record also works, but silently makes that node a single point of failure for
+  every app — this is the real edge-HA lever, not Traefik replicas. DNS has no
+  health checking, hence the short TTL: a dead node is a client timeout until
+  the record rolls over.
 - **TLS**: one Let's Encrypt wildcard for `*.swarm.huisman.dev`, issued by
   Traefik via DNS-01 at Cloudflare (zone `huisman.dev` — validation is public
   even though AdGuard resolves the names locally). The API token (`Edit zone
   DNS` template, scoped to that zone) lives in the **swarm secret**
   `cloudflare_api_token`, created in the Komodo UI (Swarm `homelab` → Secrets)
-  and referenced from compose as `external: true` — the value never enters
-  git; rotate it there too (Komodo does the rm/recreate + service-update
-  dance). lego reads the token from env while swarm secrets mount as files,
-  so the service entrypoint wraps `/traefik "$@"` to export
-  `CF_DNS_API_TOKEN` from `/run/secrets/…`. The single edge task keeps
-  `acme.json` in the node-local `traefik-acme` volume — one wildcard cert, not
-  one per node. Routers: `websecure` + `tls.certresolver=le`.
+  and referenced from compose as `external: true` — the value never enters git.
+  lego (Traefik's ACME client) reads any provider variable suffixed `_FILE` from
+  a file, so compose just sets
+  `CF_DNS_API_TOKEN_FILE=/run/secrets/cloudflare_api_token` — no shell wrapper,
+  and none of the wrapper traps. The single edge task keeps `acme.json` in the
+  node-local `traefik-acme` volume — one wildcard cert, not one per node.
+  Routers: `websecure` + `tls.certresolver=le`.
+
+### Placement: pools, not hostnames
+
+Swarm named volumes are **node-local**, so any service with a volume must be
+pinned. The pin names a *pool* (`node.labels.pool == "01"`) rather than a
+hostname: `swarm.yml` labels each worker from `swarm_node_labels` in
+`group_vars/vms/all.yml`, so replacing a VM means relabelling the new node once,
+not editing nine compose files.
+
+Being honest about what that buys: a pool is a **renaming abstraction, not
+HA**. A node-local volume still cannot move — if the node dies, the service and
+its data stay unavailable until the node returns or the volume is restored.
+What actually frees placement is moving state off the node (a later NFS/bind
+step); until then, pools just make the unavoidable pin cheap to maintain.
+
+Current split: pool `01` = uptime-kuma, flame; pool `02` = forgejo, dawarich;
+pool `03` = freshrss, vaultwarden. Deliberately unpinned, but constrained to
+`node.role == worker` so they stay off the raft managers: `searxng`
+(disposable cache) and `web-check` (stateless). `whoami` is unpinned entirely —
+spreading across nodes is the point of a mesh canary. Traefik keeps
+`node.role == manager`.
+
+### Secrets into containers
+
+Two patterns, and only two:
+
+1. **Native `_FILE` (preferred).** The image reads a path from a `*_FILE`
+   variable — Postgres `POSTGRES_PASSWORD_FILE`, lego's
+   `CF_DNS_API_TOKEN_FILE`. Mount the swarm secret and point the variable at
+   `/run/secrets/<name>`.
+2. **`sh` wrapper.** When the image reads the secret only from the environment
+   (Rails `SECRET_KEY_BASE`, FreshRSS `DB_PASSWORD`, Flame `PASSWORD`, SearXNG
+   `SEARXNG_SECRET`, Vaultwarden `ADMIN_TOKEN`), override `entrypoint` with an
+   `sh -c` that exports it from `/run/secrets` and `exec`s the image's own
+   entrypoint. Three traps — all three have bitten this repo:
+   - **re-declare the CMD** in `command:` — `docker stack deploy` drops the
+     image's CMD when `entrypoint` is overridden (FreshRSS exited 0 silently;
+     Flame's `chown` never ran);
+   - **`exec`** the final process, or SIGTERM never reaches it and stops hang
+     until the grace period expires;
+   - **double every `$`** (`$$`) so compose expands at deploy time, not at
+     container start.
+
+Secrets are only ever **swarm secrets** (`external: true`), seeded by
+`ansible/secrets.yml` from SOPS or created in the Komodo UI — never inline in a
+compose file, never in a synced TOML, because both are plaintext in a public
+repo.
+
+### Rolling updates
+
+Every service declares `update_config`/`rollback_config` via a per-file `x-`
+anchor: `parallelism: 1`, `delay: 5s`, `monitor: 30s`, and
+**`failure_action: rollback`** (Swarm's default is `pause`, which strands a
+half-updated service). `order` is `stop-first` for anything stateful — two
+tasks must never share a node-local volume, and two Rails tasks must never race
+migrations — and `start-first` for the stateless three (`whoami`, `web-check`,
+`searxng`) for zero-downtime. Traefik is stop-first deliberately: start-first
+would briefly run two tasks against one `acme.json`, the ACME race OSS Traefik
+cannot resolve. Postgres and Sidekiq get a longer `stop_grace_period` (30s) so
+they shut down cleanly.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
@@ -162,7 +231,7 @@ fails the deploy; bind mounts to VM paths like `/data/...` are fine.
 Apps with a database (see `stacks/freshrss`): the DB joins only a stack-local
 network (never `proxy`, no router, no published port — structurally private);
 name it after its service (e.g. `db`) for DNS; pin both the DB and its volume
-consumer to one node; prefer native `*_PASSWORD_FILE` secret mounts, or the
+consumer to one **pool**; prefer native `*_FILE` secret mounts, or the
 sh-wrapper env export (compose `$$` escaping!) when an app only reads env; if
 the wrapper overrides `entrypoint`, re-declare the image CMD in `command:` —
 stack deploy drops it; set `deploy.resources.limits` — the nodes are small.
@@ -189,24 +258,24 @@ app"). `git_account` stays empty now that the repo is public.
 
 ## Deployed apps
 
-What is live right now, and where. Stateful services are pinned to one node
-because their data is a node-local volume, so the pin is not cosmetic — moving
-one means moving its data too.
+What is live right now, and where. Services with a node-local volume are pinned
+to a **pool** (see "Placement: pools"), so the pin is not cosmetic — moving one
+means moving its data too. All nodes run Docker 29.8.1.
 
-| App | URL (`*.swarm.huisman.dev`) | Node | State |
+| App | URL (`*.swarm.huisman.dev`) | Placement | State |
 | --- | --- | --- | --- |
 | whoami | `whoami` | any (3 replicas) | none |
-| uptime-kuma | `kuma` | swarm-wrk-01 | sqlite volume |
-| searxng | `search` | swarm-wrk-01 | cache volume |
-| flame | `home` | swarm-wrk-01 | sqlite volume |
-| web-check | `webcheck` | swarm-wrk-02 | none |
-| forgejo | `git` | swarm-wrk-02 | sqlite volume |
-| dawarich | `timeline` | swarm-wrk-02 | postgis + volumes |
-| freshrss | `rss` | swarm-wrk-03 | postgres + volumes |
-| vaultwarden | `vault` | swarm-wrk-03 | sqlite volume |
+| uptime-kuma | `kuma` | pool 01 | sqlite volume |
+| searxng | `search` | any worker | cache (disposable) |
+| flame | `home` | pool 01 | sqlite volume |
+| web-check | `webcheck` | any worker | none |
+| forgejo | `git` | pool 02 | sqlite volume |
+| dawarich | `timeline` | pool 02 | postgis + volumes |
+| freshrss | `rss` | pool 03 | postgres + volumes |
+| vaultwarden | `vault` | pool 03 | sqlite volume |
 
-`traefik` itself is the edge, on a manager; see `komodo/stacks.toml` for the
-authoritative list.
+Pools map to workers by naming (`pool 01` = `swarm-wrk-01`, …); Traefik itself
+is the edge, on a manager. See `komodo/stacks.toml` for the authoritative list.
 
 ## Notes
 
@@ -229,3 +298,8 @@ authoritative list.
   roles, or something like Dockge — rather than resurrecting `setup.yml`.
 - App deploys are GitOps — see "Adding an app" above; Komodo resources change
   only by editing `komodo/*.toml` / `stacks/` and pushing.
+- **Image updates are manual and deliberate**: tags are pinned in every compose
+  (never `latest`) for deterministic re-syncs, and there is no auto-updater.
+  Bump a tag by hand, roughly monthly or on a security advisory, then push and
+  Deploy. `update_config`/`rollback_config` (see "Rolling updates") make the
+  resulting restart predictable and self-reverting.

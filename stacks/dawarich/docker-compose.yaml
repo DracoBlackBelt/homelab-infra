@@ -1,5 +1,5 @@
 # Dawarich: self-hosted location history. Rails app + Sidekiq worker + PostGIS
-# + Redis, all pinned to one worker (the named volumes are node-local). Only the
+# + Redis, all pinned to pool "02" (the named volumes are node-local). Only the
 # app joins the proxy overlay for Traefik; db and redis stay on the stack-local
 # network.
 #
@@ -11,6 +11,17 @@
 # Resource limits are deliberately far below Dawarich's upstream default (4 GB):
 # this runs on a 5 GiB worker. Raise WEB_CONCURRENCY / the app limit if imports
 # feel slow.
+
+# Rolling updates: every service here is stateful-ish, so stop-first -- two
+# app tasks would race on Rails migrations, and two writers on a node-local
+# volume is corruption. failure_action: rollback (Swarm's default is `pause`).
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   dawarich-redis:
     image: redis:7.4-alpine
@@ -29,7 +40,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-02
+          - node.labels.pool == "02"
       resources:
         limits:
           memory: 128M
@@ -37,6 +48,8 @@ services:
           memory: 64M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
 
   dawarich-db:
     image: postgis/postgis:17-3.5-alpine
@@ -57,11 +70,13 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    # Default is 10s; give Postgres time to shut down cleanly (checkpoint).
+    stop_grace_period: 30s
     deploy:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-02
+          - node.labels.pool == "02"
       resources:
         limits:
           memory: 768M
@@ -69,6 +84,8 @@ services:
           memory: 256M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
 
   dawarich-app:
     image: freikin/dawarich:1.14.5
@@ -119,7 +136,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-02
+          - node.labels.pool == "02"
       resources:
         limits:
           memory: 1024M
@@ -127,6 +144,8 @@ services:
           memory: 384M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.dawarich.rule=Host(`timeline.swarm.huisman.dev`)"
@@ -173,11 +192,13 @@ services:
       timeout: 10s
       retries: 20
       start_period: 60s
+    # Default is 10s; Sidekiq drains in-flight jobs on SIGTERM.
+    stop_grace_period: 30s
     deploy:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-02
+          - node.labels.pool == "02"
       resources:
         limits:
           memory: 512M
@@ -185,6 +206,8 @@ services:
           memory: 256M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
 
 networks:
   proxy:

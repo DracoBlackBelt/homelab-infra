@@ -225,6 +225,33 @@
       when: groups['vms'] | difference(swarm_ready_nodes) | length > 0
       run_once: true
 
+    # Placement pools (swarm_node_labels in group_vars/vms/all.yml). Composes
+    # pin stateful services with `node.labels.pool == "NN"` instead of a
+    # hostname, so a replacement VM is re-labelled here and no stack file
+    # changes. Read-then-write so the task reports changed only when it
+    # actually relabels something.
+    - name: Read each node's current labels
+      ansible.builtin.command: >-
+        docker node inspect {{ item.key }} --format
+        '{% raw %}{{ json .Spec.Labels }}{% endraw %}'
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: node_labels
+      changed_when: false
+      loop: "{{ swarm_node_labels | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Label each node with its placement pool
+      ansible.builtin.command: >-
+        docker node update --label-add pool={{ item.item.value }} {{ item.item.key }}
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      loop: "{{ node_labels.results }}"
+      loop_control:
+        label: "{{ item.item.key }} pool={{ item.item.value }}"
+      when: ((item.stdout | from_json) or {}).get('pool') != item.item.value
+
     # Cluster-wide overlay shared by the Traefik edge and every routed app.
     # Stack-created networks get a '<stack>_' prefix and thus can't be shared
     # across stacks, so the stacks declare it `external: true` and this play

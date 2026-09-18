@@ -189,23 +189,51 @@ The chain is only visible across files:
   not own membership — its Swarm resource only *talks to* managers — which is why this play
   exists. It also ensures the cluster-wide `proxy` overlay (inspect, create only if missing)
   that Traefik and all routed apps share: stack-created networks get a `<stack>_` prefix and
-  thus can't be shared across stacks, so no stack may own it.
+  thus can't be shared across stacks, so no stack may own it. Finally it labels each worker
+  with a placement **pool** (`swarm_node_labels` in `group_vars/vms/all.yml`, applied as
+  `node.labels.pool=NN`, read-then-write so it only reports changed when it relabels), which
+  is what the stacks' placement constraints reference — a pool names the worker a service's
+  node-local volumes live on, so replacing a VM means relabelling the new node rather than
+  editing nine compose files. It is a renaming abstraction, not HA: a local volume still
+  cannot move. Labels must exist before a compose referencing them is deployed, or those
+  services go unschedulable.
 - **`stacks/traefik/`** is the edge router: pinned Traefik v3 with the native **swarm
    provider** (`exposedbydefault=false`), reading routing from `deploy.labels` on swarm
    services — so an app's route is defined in the app's own compose file, and adding one
    never redeploys Traefik. Runs `replicated: 1` constrained to `node.role == manager`
    (the mounted `docker.sock:ro` then always serves the cluster API) — one task, not
    one-per-node, because OSS Traefik has no shared-ACME storage and parallel replicas
-   race on the same Cloudflare TXT record. Publishes 80/443 via
+   race on the same Cloudflare TXT record (maintainers closed the flat-file requests as
+   unsupported by design; Traefik Enterprise or cert-manager is the only multi-replica
+   path). Its `update_config` is stop-first for exactly that reason: start-first would
+   briefly run two tasks against one `acme.json`. Publishes 80/443 via
    **ingress**, letting the routing mesh serve the edge from any node IP. DNS is manual,
-   outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.huisman.dev` → a node IP
-   (npmplus on 10.0.0.6 keeps the rest of the LAN untouched). TLS is live: Cloudflare
+   outside git: AdGuard Home (10.0.0.70) rewrites `*.swarm.huisman.dev` → **three A
+   records, one per manager IP, TTL 60s** (npmplus on 10.0.0.6 keeps the rest of the LAN
+   untouched) — the mesh accepts on every node and forwards to the one task, so multiple
+   node IPs are the real edge-HA lever, not Traefik replicas. TLS is live: Cloudflare
    DNS-01 issues one `*.swarm.huisman.dev` wildcard via the `le` resolver; the
    API token is the external swarm secret `cloudflare_api_token` (value created in
-   the Komodo UI, never in git; lego reads env, so the entrypoint cats the secret
-   file into `CF_DNS_API_TOKEN` before `exec /traefik "$@"`). Apps route on
+   the Komodo UI, never in git) and reaches lego natively via
+   `CF_DNS_API_TOKEN_FILE=/run/secrets/cloudflare_api_token` — lego resolves any provider
+   variable suffixed `_FILE`, so there is no sh wrapper here (and none of its traps; note
+   a compose `command:` REPLACES the image CMD, so `traefik` must stay its first
+   element). Apps route on
    `websecure`, `web` is redirect-only, and steady-state app stacks publish **no**
    ports — see README "Routing".
+- **App stack conventions** (see README "Secrets into containers" / "Rolling updates"):
+   secrets reach a container by exactly two routes — the image's native `*_FILE`
+   variable (Postgres `POSTGRES_PASSWORD_FILE`, lego `CF_DNS_API_TOKEN_FILE`) or an
+   `sh` wrapper that exports from `/run/secrets` and `exec`s the image entrypoint.
+   The wrapper has three traps that have all bitten: **re-declare the CMD** in
+   `command:` (stack deploy drops it when `entrypoint` is overridden), **`exec`** the
+   final process (or SIGTERM never arrives), and **double every `$`**. Every service
+   declares `update_config`/`rollback_config` from a per-file `x-` anchor:
+   `parallelism: 1`, `delay: 5s`, `monitor: 30s`, `failure_action: rollback` (Swarm's
+   default is `pause`, which strands a half-updated service), `order: stop-first` for
+   anything stateful and `start-first` for the stateless (`whoami`, `web-check`,
+   `searxng`). `whoami` is a `scratch` image: no shell, no HTTP client, no health-check
+   flag, so a container healthcheck is impossible — Uptime Kuma probes it externally.
 - **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three manager VMs) and
   Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI
   (repo `homelab-infra`, path `komodo/`). From then on editing these files (+ `stacks/`)

@@ -7,6 +7,17 @@
 # -- because the wrapper overrides the entrypoint, that CMD must be re-declared
 # under `command:` (docker stack deploy drops the image CMD otherwise; see
 # stacks/freshrss for the same trap).
+
+# Rolling updates: node-local volume + an entrypoint that `chown -R`s it, so
+# stop-first (two tasks would race the chown/write). failure_action: rollback
+# (Swarm's default is `pause`) auto-reverts a bad deploy.
+x-update-config: &update-config
+  order: stop-first
+  parallelism: 1
+  delay: 5s
+  monitor: 30s
+  failure_action: rollback
+
 services:
   flame:
     image: pawelmalak/flame:2.4.0
@@ -40,7 +51,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == swarm-wrk-01
+          - node.labels.pool == "01"
       resources:
         limits:
           memory: 128M
@@ -48,6 +59,8 @@ services:
           memory: 64M
       restart_policy:
         condition: any
+      update_config: *update-config
+      rollback_config: *update-config
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.flame.rule=Host(`home.swarm.huisman.dev`)"
