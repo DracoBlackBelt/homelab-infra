@@ -217,15 +217,25 @@ repo.
 ### Rolling updates
 
 Every service declares `update_config`/`rollback_config` via a per-file `x-`
-anchor: `parallelism: 1`, `delay: 5s`, `monitor: 30s`, and
-**`failure_action: rollback`** (Swarm's default is `pause`, which strands a
-half-updated service). `order` is `stop-first` for anything stateful — two
-tasks must never share a node-local volume, and two Rails tasks must never race
-migrations — and `start-first` for the stateless three (`whoami`, `web-check`,
-`searxng`) for zero-downtime. Traefik is stop-first deliberately: start-first
-would briefly run two tasks against one `acme.json`, the ACME race OSS Traefik
-cannot resolve. Postgres and Sidekiq get a longer `stop_grace_period` (30s) so
-they shut down cleanly.
+anchor: `parallelism: 1`, `delay: 5s`, `monitor: 30s`. `order` is `stop-first`
+for anything stateful — two tasks must never share a node-local volume, and two
+Rails tasks must never race migrations — and `start-first` for the stateless
+three (`whoami`, `web-check`, `searxng`) for zero-downtime. Traefik is
+stop-first deliberately: start-first would briefly run two tasks against one
+`acme.json`, the ACME race OSS Traefik cannot resolve. Postgres and Sidekiq get
+a longer `stop_grace_period` (30s) so they shut down cleanly.
+
+**Never set `failure_action: rollback`.** It looks like the obvious improvement
+over Swarm's default (`pause`, which can strand a half-updated service), but
+Komodo 2.3.3 ships bollard 0.21.1, whose `FailureAction` enum has no `rollback`
+variant. One service carrying that value makes bollard fail to deserialize the
+**entire** `/services` response, which Komodo swallows (`unwrap_or_default()`),
+so its swarm service list comes back empty and **every swarm stack shows
+`Down` with no services listed** — while the apps keep running normally and
+deploys keep succeeding (they use the CLI, not bollard). Diagnosing it is
+painful precisely because the error is swallowed; the tell is that
+`ListSwarmNodes`/`ListSwarmStacks`/`ListSwarmTasks` all return data but
+`ListSwarmServices` returns `[]`. Revisit when Komodo bumps bollard.
 
 Rules of thumb: one directory and one `[[stack]]` per app (independent
 deploys, clean blast radius); non-sensitive config via `[[variable]]` blocks —
@@ -308,4 +318,5 @@ is the edge, on a manager. See `komodo/stacks.toml` for the authoritative list.
   (never `latest`) for deterministic re-syncs, and there is no auto-updater.
   Bump a tag by hand, roughly monthly or on a security advisory, then push and
   Deploy. `update_config`/`rollback_config` (see "Rolling updates") make the
-  resulting restart predictable and self-reverting.
+  resulting restart predictable (`parallelism: 1`, a 5s delay, and the right
+  `order`).

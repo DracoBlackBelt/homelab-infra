@@ -24,13 +24,12 @@
 #  * Resource limits are the swarm-side seatbelts for a 900 MB node.
 
 # Rolling updates: both services own node-local volumes, so stop-first.
-# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   freshrss:

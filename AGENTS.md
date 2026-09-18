@@ -229,10 +229,16 @@ The chain is only visible across files:
    `command:` (stack deploy drops it when `entrypoint` is overridden), **`exec`** the
    final process (or SIGTERM never arrives), and **double every `$`**. Every service
    declares `update_config`/`rollback_config` from a per-file `x-` anchor:
-   `parallelism: 1`, `delay: 5s`, `monitor: 30s`, `failure_action: rollback` (Swarm's
-   default is `pause`, which strands a half-updated service), `order: stop-first` for
+   `parallelism: 1`, `delay: 5s`, `monitor: 30s`, `order: stop-first` for
    anything stateful and `start-first` for the stateless (`whoami`, `web-check`,
-   `searxng`). `whoami` is a `scratch` image: no shell, no HTTP client, no health-check
+   `searxng`). **Do NOT add `failure_action: rollback`** — Komodo 2.3.3's bollard
+   0.21.1 lacks that enum variant, so one such service makes bollard fail to
+   deserialize the whole `/services` response; Komodo swallows the error, its
+   swarm service list comes back empty, and every swarm stack reads `Down` with
+   no services while the apps and deploys are fine. The tell:
+   `ListSwarmNodes`/`ListSwarmStacks`/`ListSwarmTasks` return data,
+   `ListSwarmServices` returns `[]`. See README "Rolling updates".
+   `whoami` is a `scratch` image: no shell, no HTTP client, no health-check
    flag, so a container healthcheck is impossible — Uptime Kuma probes it externally.
 - **`komodo/*.toml`** is Komodo-as-code: the Swarm resource (`homelab` = the three manager VMs) and
   Stack declarations, diffed into Core by ONE bootstrap `ResourceSync` created in the UI

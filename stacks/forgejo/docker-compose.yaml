@@ -12,13 +12,12 @@
 # (Forgejo generates SECRET_KEY/INTERNAL_TOKEN itself, into app.ini in /data.)
 
 # Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
-# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   forgejo:

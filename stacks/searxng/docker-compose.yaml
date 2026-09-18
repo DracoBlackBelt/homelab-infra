@@ -11,13 +11,12 @@
 # keeps it off the raft managers without coupling it to one host.
 
 # Rolling updates: stateless (only a disposable cache volume), so start-first
-# for zero-downtime. failure_action: rollback (Swarm's default is `pause`).
+# for zero-downtime. Do NOT add failure_action: rollback -- see README.
 x-update-config: &update-config
   order: start-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   searxng:

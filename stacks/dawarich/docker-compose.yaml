@@ -14,13 +14,15 @@
 
 # Rolling updates: every service here is stateful-ish, so stop-first -- two
 # app tasks would race on Rails migrations, and two writers on a node-local
-# volume is corruption. failure_action: rollback (Swarm's default is `pause`).
+# volume is corruption.
+# NOTE: never add failure_action: rollback here. Komodo's bundled bollard
+# cannot deserialize that value, which empties its whole swarm service list and
+# marks every swarm stack Down. See README "Rolling updates".
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   dawarich-redis:

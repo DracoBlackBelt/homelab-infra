@@ -9,13 +9,12 @@
 # every node is the point.
 
 # Rolling updates: stateless, so start-first for zero-downtime.
-# failure_action: rollback (Swarm's default is `pause`) auto-reverts a bad deploy.
+# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
 x-update-config: &update-config
   order: start-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   whoami:

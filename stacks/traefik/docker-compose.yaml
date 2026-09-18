@@ -24,15 +24,13 @@
 # Rolling-update policy. stop-first is REQUIRED here, not cosmetic: under
 # start-first Swarm would briefly run TWO Traefik tasks against one acme.json --
 # the exact ACME race OSS Traefik cannot resolve (only one task may hold the
-# wildcard and answer the DNS-01 challenge). failure_action: rollback (Swarm's
-# default is `pause`) makes a bad deploy revert itself instead of stranding a
-# half-started service.
+# wildcard and answer the DNS-01 challenge). Do NOT add failure_action:
+# rollback -- Komodo's bundled bollard cannot parse it (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   traefik:

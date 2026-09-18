@@ -9,14 +9,13 @@
 # stacks/freshrss for the same trap).
 
 # Rolling updates: node-local volume + an entrypoint that `chown -R`s it, so
-# stop-first (two tasks would race the chown/write). failure_action: rollback
-# (Swarm's default is `pause`) auto-reverts a bad deploy.
+# stop-first (two tasks would race the chown/write). Do NOT add
+# failure_action: rollback -- see README "Rolling updates" (bollard).
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
   delay: 5s
   monitor: 30s
-  failure_action: rollback
 
 services:
   flame:
