@@ -1,0 +1,67 @@
+# Dynamic config for the VPS public edge (stacks/traefik-edge). Loaded by the
+# file provider; no docker socket, no swarm provider.
+#
+# The swarm router is an explicit ALLOWLIST: only the six named hosts resolve
+# here, so labelling a new internal app in the swarm does NOT expose it. To
+# publish another host, add it to the regex and add a public A record.
+http:
+  routers:
+    # Homelab swarm apps, mirrored under their internal names so the Host
+    # reaches the swarm router unchanged (passHostHeader is true by default).
+    swarm:
+      rule: 'HostRegexp(`^(whoami|kuma|git|rss|timeline|home)\.swarm\.huisman\.dev$`)'
+      entryPoints:
+        - websecure
+      service: swarm-edge
+      tls:
+        certResolver: le
+        domains:
+          - main: "*.swarm.huisman.dev"
+
+    # Auth plane stays on the VPS: these must not sit behind SSO or the swarm.
+    pocket-id:
+      rule: 'Host(`id.huisman.dev`)'
+      entryPoints:
+        - websecure
+      service: pocket-id
+      tls:
+        certResolver: le
+        domains:
+          - main: "*.huisman.dev"
+
+    tinyauth:
+      rule: 'Host(`auth.huisman.dev`)'
+      entryPoints:
+        - websecure
+      service: tinyauth
+      tls:
+        certResolver: le
+        domains:
+          - main: "*.huisman.dev"
+
+  services:
+    # The swarm handoff: host-mode 8443 on the edge-labelled manager, reached
+    # over the tailnet. passHostHeader keeps the original Host so the swarm
+    # router matches.
+    swarm-edge:
+      loadBalancer:
+        serversTransport: swarm-edge@file
+        servers:
+          - url: "https://100.121.44.84:8443"
+
+    pocket-id:
+      loadBalancer:
+        servers:
+          - url: "http://pocket-id:1411"
+
+    tinyauth:
+      loadBalancer:
+        servers:
+          - url: "http://tinyauth:3000"
+
+  serversTransports:
+    # Verified TLS to the swarm edge. Any single-label name under the wildcard
+    # verifies; this one pins the SNI so the swarm serves its real LE cert
+    # instead of Traefik's default self-signed one. The hop is inside WireGuard.
+    swarm-edge:
+      serverName: "edge.swarm.huisman.dev"

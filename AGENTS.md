@@ -67,7 +67,9 @@ apply), and the map key must equal `name` (lifecycle precondition).
 **Adding an app** -- `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, pinned
 image tags) + one `[[stack]]` block in `komodo/stacks.toml` (`swarm = "homelab"`,
 `deploy = true`), then push. Webapps route through Traefik, never published ports -- copy
-`stacks/whoami/` (see README "Adding an app" / "Routing"). Secrets: add the value to
+`stacks/whoami/` (see README "Adding an app" / "Routing"). Public exposure is separate: a
+swarm label alone does not publish anything -- add the host to the allowlist in
+`stacks/traefik-edge/dynamic.yml` plus a public A record. Secrets: add the value to
 `vms/secrets.sops.yml` and the name to `secrets.yml`, then run
 `ansible-playbook secrets.yml` **before** the push (an `external: true` secret that does
 not exist fails the deploy), or create it in the Komodo UI. The sync re-deploys when the
@@ -147,6 +149,10 @@ secret-wrapper traps) are in README -- copy an existing stack rather than invent
   it externally.
 - The old all-in-one `ansible/setup.yml` is gone (`git show bafa092:ansible/setup.yml`);
   extend the chain as small plays, not by resurrecting it.
+- `stacks/traefik-edge` is a **server** stack (`server = "PBS"`), not swarm: it is a plain
+  `docker compose` on the VPS, and the swarm-only `docker stack config` CI step parses it
+  but ignores keys like `restart`. Its public allowlist is `dynamic.yml`; its
+  `CF_DNS_API_TOKEN` must exist as a Komodo secret variable or the deploy fails.
 - In `komodo.yml`, `komodo_version` and `komodo_release_checksums` must change **together**
   or `get_url` fails the checksum.
 

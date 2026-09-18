@@ -1,0 +1,59 @@
+# Public edge on the VPS (Komodo stack with server = "PBS", NOT a swarm stack).
+# Terminates TLS for *.huisman.dev and *.swarm.huisman.dev, then proxies the
+# allowed swarm hosts over the tailnet to the host-mode handoff published by
+# stacks/traefik on the edge-labelled manager. See README "Public access".
+#
+# File provider only: every routed app lives on the swarm, so there is nothing
+# local to discover and no docker socket is mounted. Routes live in dynamic.yml
+# (a sibling of this file in the repo clone).
+#
+# CF_DNS_API_TOKEN comes from a Komodo *secret* variable (Settings -> Variables,
+# marked secret) interpolated into the stack environment; it is never in git.
+#
+# The image is ENTRYPOINT /entrypoint.sh + CMD ["traefik"], and a compose
+# `command:` REPLACES the CMD -- keep `traefik` first below.
+services:
+  traefik-edge:
+    image: traefik:v3.7.13
+    restart: unless-stopped
+    ports:
+      # Bind the public IP explicitly; the host's tailnet :443 is tailscaled's.
+      - "89.58.24.120:80:80"
+      - "89.58.24.120:443:443"
+      - "89.58.24.120:443:443/udp"
+    environment:
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN}
+    volumes:
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - traefik-edge-acme:/data
+    networks:
+      - edge
+    command:
+      - traefik
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http3
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --certificatesresolvers.le.acme.email=job.r.huisman@gmail.com
+      - --certificatesresolvers.le.acme.storage=/data/acme.json
+      - --certificatesresolvers.le.acme.dnschallenge=true
+      - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
+      - --accesslog=true
+      - --log.level=INFO
+      - --ping=true
+    # A real check: a broken healthcheck would make Compose restart-loop the edge.
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  traefik-edge-acme:

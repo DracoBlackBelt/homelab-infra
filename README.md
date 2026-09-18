@@ -132,6 +132,16 @@ replies. Only named hosts are ever exposed; the AdGuard rewrites stay internal, 
 clients never involve the VPS. The trusted IP is a tailnet address and must be updated if
 `pbs` re-registers.
 
+The edge itself is `stacks/traefik-edge`, a **Compose stack on `pbs`** (declared with
+`server = "PBS"`, not a swarm stack). It runs with the **file provider only** -- no docker
+socket -- so its entire routing table is the committed `dynamic.yml`: an explicit allowlist
+of `whoami`, `kuma`, `git`, `rss`, `timeline`, `home` on `*.swarm.huisman.dev`, plus `id.`
+and `auth.` for the auth plane (which stay on the VPS, unproxied). Labelling a new app in
+the swarm therefore does **not** expose it: publishing a host means adding it to the
+allowlist, adding a public A record, and redeploying this stack. TLS for both wildcards is
+Cloudflare DNS-01, and the token is a Komodo **secret variable** (`CF_DNS_API_TOKEN`)
+interpolated into the stack environment -- never in git.
+
 ### Placement: pools, not hostnames
 
 Swarm named volumes are **node-local**, so any service with a volume must be pinned. The

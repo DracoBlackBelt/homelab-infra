@@ -1,6 +1,8 @@
-# Stacks deployed to the 'homelab' swarm (swarms.toml). Compose files live in
-# this repo under stacks/ -- the ResourceSync clones homelab-infra and runs
-# `docker stack deploy`. The repo is public, so no `git_account` is needed.
+# Stacks declared to Komodo. Most target the 'homelab' swarm (swarms.toml),
+# with compose files in this repo under stacks/ -- the ResourceSync clones
+# homelab-infra and runs `docker stack deploy`. The repo is public, so no
+# `git_account` is needed. A stack with `server = "..."` instead of
+# `swarm = "..."` is a plain Compose stack on that one server.
 #
 # deploy = true: running the ResourceSync also deploys the stack. Caveat: it
 # re-deploys when this TOML changes, NOT when a referenced compose file changes
@@ -136,3 +138,25 @@ git_provider = "github.com"
 repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/dawarich/docker-compose.yaml"]
+
+# The VPS public edge. `server` (not `swarm`) makes this a plain Compose stack
+# on PBS: it terminates public TLS and proxies the allowed swarm hosts over the
+# tailnet. CF_DNS_API_TOKEN is a Komodo *secret* variable (Settings ->
+# Variables), interpolated here, so no token enters git. It is deliberately not
+# `deploy = true`-coupled to app changes: publish a host by editing the
+# allowlist in stacks/traefik-edge/dynamic.yml and redeploying this stack.
+[[stack]]
+name = "traefik-edge"
+description = "Public edge on the VPS: TLS + file-provider routing to the swarm handoff"
+tags = ["infra", "vps"]
+deploy = true
+
+[stack.config]
+server = "PBS"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/traefik-edge/docker-compose.yaml"]
+environment = """
+CF_DNS_API_TOKEN = [[CF_DNS_API_TOKEN]]
+"""
