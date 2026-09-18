@@ -135,14 +135,30 @@ clients never involve the VPS. The trusted IP is a tailnet address and must be u
 The edge itself is `stacks/traefik-edge`, a **Compose stack on `pbs`** (declared with
 `server = "PBS"`, not a swarm stack). It runs with the **file provider only** -- no docker
 socket -- so its entire routing table is the committed `dynamic.yml`: an explicit allowlist
-of `whoami`, `kuma`, `git`, `rss`, `timeline`, `home` on `*.swarm.huisman.dev`, plus `id.`
-and `auth.` for the auth plane (which stay on the VPS, unproxied) and `zerobyte.` for the
-VPS backup UI. Labelling a new app in
-the swarm therefore does **not** expose it: publishing a host means adding it to the
-allowlist, and redeploying this stack. Public DNS is the Cloudflare wildcard
-(`*.huisman.dev` and `*.swarm.huisman.dev` both point at the VPS, DNS-only), so no per-host
-record is needed. TLS is Cloudflare DNS-01, and the token is a Komodo **secret variable**
-(`CF_DNS_API_TOKEN`) interpolated into the stack environment -- never in git.
+on `*.swarm.huisman.dev` split into two routers, plus `id.` and `auth.` for the auth plane
+(which stay on the VPS, unproxied) and `zerobyte.` for the VPS backup UI. Labelling a new
+app in the swarm therefore does **not** expose it: publishing a host means adding it to the
+allowlist, and redeploying this stack.
+
+Public hosts fall into two groups:
+
+- **SSO-gated (browser UIs):** `home` (Flame), `kuma` (Uptime Kuma), and `zerobyte.`. A
+  `tinyauth` forwardAuth middleware sends an unauthenticated request to Pocket-ID
+  (`id.huisman.dev`) via `auth.huisman.dev` before it reaches the app. These are the UIs
+  with no non-browser client.
+- **Native auth (non-browser clients):** `git` (Forgejo), `rss` (FreshRSS), `timeline`
+  (Dawarich). Forward-auth would break them -- git-over-HTTPS uses `Authorization: token`,
+  which a forward-auth middleware does not recognise (and exempting `/api` is a hole), and
+  FreshRSS/Dawarich have mobile/API clients that cannot follow an interactive OIDC redirect.
+  They stay behind their own login.
+
+`whoami` is deliberately **not** published: a mesh canary does not belong on the public
+internet. Every published route also carries a `secure-headers` middleware (HSTS, nosniff,
+frame-deny, referrer-policy), and the login-bearing hosts carry a `rateLimit`. Public DNS is
+the Cloudflare wildcard (`*.huisman.dev` and `*.swarm.huisman.dev` both point at the VPS,
+DNS-only), so no per-host record is needed. TLS is Cloudflare DNS-01, and the token is a
+Komodo **secret variable** (`CF_DNS_API_TOKEN`) interpolated into the stack environment --
+never in git.
 
 TLS is also the one place the VPS host itself matters: netcup filters **outbound UDP** by
 default (53 and 123 both time out; `tcp/53` and Tailscale's `100.100.100.100` work), which
@@ -287,7 +303,25 @@ Core over the tailnet.
   all-in-one `setup.yml` (`git show bafa092:ansible/setup.yml`).
 - App deploys are GitOps: Komodo resources change only by editing `komodo/*.toml` /
   `stacks/` and pushing.
-- **Image updates are manual and deliberate**: tags are pinned in every compose (never
-  `latest`) and there is no auto-updater. Bump a tag by hand, roughly monthly or on a
-  security advisory, then push and Deploy. The `update_config`/`rollback_config` anchors
-  make the resulting restart predictable.
+- **Image updates are manual and deliberate**: every compose pins both the tag and the
+  image digest (`image:tag@sha256:...`, never `latest`) and there is no auto-updater. Bump
+  a tag *and* its digest by hand, roughly monthly or on a security advisory, then push and
+  Deploy. The `update_config`/`rollback_config` anchors make the resulting restart
+  predictable. (`ghcr.io/moghtech/komodo-*` is the one exception -- it is Core's own stack,
+  not declared here.)
+- **SSH host keys are trust-on-first-use, then pinned** (`ansible/ansible.cfg`:
+  `host_key_checking=True` + `StrictHostKeyChecking=accept-new`). A rebuilt VM is added on
+  first contact; a later key *change* is refused, which is the MITM tell. The old
+  behaviour (`host_key_checking=False`) trusted every key every time.
+- **Vaultwarden registration is closed** (`SIGNUPS_ALLOWED=false`,
+  `INVITATIONS_ALLOWED=false`) per its hardening guide; create the first account by
+  temporarily re-opening signups, or invite from `/admin`.
+- **SeaweedFS publishes only the S3 API** (`100.126.232.11:8333`). The master/filer/volume
+  ports (`8888` filer UI, `7333`, `23646`) are *not* published: SeaweedFS master/filer have
+  no built-in auth, so exposing them -- even tailnet-only -- would let any tailnet peer
+  read or delete the backups without the S3 credentials.
+- **CI actions are pinned to commit SHAs**, not moving major tags, so a retargeted action
+  release cannot run in CI.
+- **The public edge adds `secure-headers` to every route** and a `rateLimit` to the
+  login-bearing hosts, and puts the browser-only UIs behind `tinyauth` forward-auth (see
+  "Public access"). Apps with non-browser clients keep their own auth on purpose.

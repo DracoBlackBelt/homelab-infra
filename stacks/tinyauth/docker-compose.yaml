@@ -7,12 +7,14 @@
 # The container joins `edge` so the edge reaches it as http://tinyauth:3000.
 services:
   tinyauth:
-    image: ghcr.io/tinyauthapp/tinyauth:v5
+    image: ghcr.io/tinyauthapp/tinyauth:v5@sha256:220aa235c76393a73fece831d7ba967b8698d3907fd8e3c4c952f699c7b142a5
     restart: unless-stopped
     environment:
       TINYAUTH_APPURL: https://auth.huisman.dev
       TINYAUTH_SECRET: ${TINYAUTH_SECRET}
       TINYAUTH_AUTH_TRUSTEDPROXIES: 172.22.0.0/16
+      # The edge is HTTPS-only (and now HSTS); mark the session cookie Secure.
+      TINYAUTH_AUTH_SECURECOOKIE: "true"
 
       # Pocket ID as the only provider (no local TINYAUTH_AUTH_USERS).
       TINYAUTH_OAUTH_PROVIDERS_POCKETID_CLIENTID: fd204d51-4f7f-4da2-bc25-00e3407b14be

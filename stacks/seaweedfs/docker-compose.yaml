@@ -2,9 +2,14 @@
 # behind zerobyte's restic backups (buckets yuvomi-backups, zerobyte-repo).
 # Adopted from a Dockhand-managed container that had no compose in git.
 #
-# Ports bind the tailnet IP only; the S3 API is never public. /opt/seaweedfs is
-# the data directory and also holds .mini_kek_passphrase / .mini_sse_kek --
-# losing or changing those makes existing objects unreadable, so keep it intact.
+# ONLY the S3 API (8333) is published, on the tailnet IP. The master/filer/volume
+# ports (8888 filer UI, 7333, 23646) are NOT published: SeaweedFS master/filer
+# have no authentication of their own, so exposing them -- even tailnet-only --
+# would let any tailnet peer browse and delete the backups without the S3
+# credentials. They stay reachable container-to-container as `seaweedfs:8888`.
+# /opt/seaweedfs is the data directory and also holds .mini_kek_passphrase /
+# .mini_sse_kek -- losing or changing those makes existing objects unreadable, so
+# keep it intact.
 #
 # S3 credentials come from Komodo *secret* variables. Rotating them means
 # updating every client in the same change -- in practice zerobyte's stored
@@ -22,6 +27,3 @@ services:
       - /opt/seaweedfs:/data
     ports:
       - "100.126.232.11:8333:8333"
-      - "100.126.232.11:7333:7333"
-      - "100.126.232.11:8888:8888"
-      - "100.126.232.11:23646:23646"

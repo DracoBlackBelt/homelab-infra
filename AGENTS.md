@@ -64,13 +64,15 @@ it to `swarm_manager_hosts` (`group_vars/vms/all.yml`), and to `komodo/swarms.to
 `disk_size >= 16` (template disk; clones cannot shrink, so a smaller value fails at
 apply), and the map key must equal `name` (lifecycle precondition).
 
-**Adding an app** -- `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, pinned
-image tags) + one `[[stack]]` block in `komodo/stacks.toml` (`swarm = "homelab"`,
-`deploy = true`), then push. Webapps route through Traefik, never published ports -- copy
-`stacks/whoami/` (see README "Adding an app" / "Routing"). Public exposure is separate: a
-swarm label alone does not publish anything -- add the host to the allowlist in
-`stacks/traefik-edge/dynamic.yml` (public DNS is a wildcard, so no record is needed).
-Secrets: add the value to
+**Adding an app** -- `stacks/<app>/docker-compose.yaml` (swarm `deploy:` syntax, image
+pinned by tag **and digest**) + one `[[stack]]` block in `komodo/stacks.toml`
+(`swarm = "homelab"`, `deploy = true`), then push. Webapps route through Traefik, never
+published ports -- copy `stacks/whoami/` (see README "Adding an app" / "Routing"). Public
+exposure is separate: a swarm label alone does not publish anything -- add the host to the
+allowlist in `stacks/traefik-edge/dynamic.yml` (public DNS is a wildcard, so no record is
+needed). Decide its auth: browser-only UI -> `swarm-protected` + tinyauth; app with
+non-browser clients (git smart-HTTP, mobile apps) -> `swarm-open` + its own auth. Every
+route gets `secure-headers`. Secrets: add the value to
 `vms/secrets.sops.yml` and the name to `secrets.yml`, then run
 `ansible-playbook secrets.yml` **before** the push (an `external: true` secret that does
 not exist fails the deploy), or create it in the Komodo UI. The sync re-deploys when the
@@ -147,19 +149,26 @@ secret-wrapper traps) are in README -- copy an existing stack rather than invent
   VPS public edge targets that node's tailnet IP `:8443` (host-mode, not the mesh -- the
   1450-byte overlay over the 1280-byte tailnet drops packets). See README "Public access".
 - `whoami` is a `scratch` image: no shell, no client, no healthcheck -- Uptime Kuma probes
-  it externally.
+  it externally. It is **not** in the public allowlist (`dynamic.yml`); it stays internal.
 - The old all-in-one `ansible/setup.yml` is gone (`git show bafa092:ansible/setup.yml`);
   extend the chain as small plays, not by resurrecting it.
 - `stacks/traefik-edge` is a **server** stack (`server = "PBS"`), not swarm: it is a plain
   `docker compose` on the VPS, and the swarm-only `docker stack config` CI step parses it
-  but ignores keys like `restart`. Its public allowlist is `dynamic.yml`; its
-  `CF_DNS_API_TOKEN` must exist as a Komodo secret variable or the deploy fails.
+  but ignores keys like `restart`. Its public allowlist is `dynamic.yml`: `swarm-protected`
+  (home, kuma -- behind `tinyauth` forwardAuth), `swarm-open` (git, rss, timeline -- own
+  auth, because forward-auth breaks git smart-HTTP and mobile/API clients), plus `id.`,
+  `auth.` and `zerobyte.`. Every route carries `secure-headers`; login-bearing hosts also
+  `auth-ratelimit`. Its `CF_DNS_API_TOKEN` must exist as a Komodo secret variable or the
+  deploy fails.
 - The VPS's other stacks are server stacks too (`server = "PBS"`): `pocket-id`, `tinyauth`,
   `seaweedfs`, `zerobyte` (Komodo Core manages itself). Their secrets are Komodo
   **variables** interpolated as `[[NAME]]`, and the `environment` key must equal the compose
   `${NAME}` -- `FOO = [[BAR]]` exports `FOO`, so a compose reading `${BAR}` starts with an
   empty secret. Their data is host bind mounts under `/opt`; pocket-id's `ENCRYPTION_KEY`
-  and the seaweedfs S3 keys must be preserved, not rotated casually.
+  and the seaweedfs S3 keys must be preserved, not rotated casually. `seaweedfs` publishes
+  **only** the S3 API (`100.126.232.11:8333`); the master/filer ports have no auth and must
+  never be published. `pocket-id` sets `TRUST_PROXY` to the `edge` subnet (`172.22.0.0/16`),
+  never `true`.
 - `zerobyte` needs `cap_add: SYS_ADMIN`, `devices: /dev/fuse` and
   `security_opt: apparmor:unconfined` to mount WebDAV/NFS/SMB/SFTP sources: on Debian the
   docker-default AppArmor profile denies the mount syscall even with `SYS_ADMIN`, and the

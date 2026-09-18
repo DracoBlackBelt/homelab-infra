@@ -16,7 +16,7 @@ x-update-config: &update-config
 
 services:
   flame:
-    image: pawelmalak/flame:2.4.0
+    image: pawelmalak/flame:2.4.0@sha256:7a5edc859235486a82871eb624f03048e44f603cba42ea3f60dc7cfe60ca6b3f
     networks:
       - proxy
     secrets:

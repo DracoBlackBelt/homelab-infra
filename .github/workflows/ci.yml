@@ -2,6 +2,10 @@
 #
 # Every check is mirrored by a `make` target so the same thing can be run
 # locally before pushing (see the Makefile; `make ci` runs the lot).
+#
+# Actions are pinned to a commit SHA (with the tag in a comment), not the moving
+# major tag, so a compromised or retargeted action release cannot run in CI.
+# Bump a SHA deliberately when updating an action.
 name: ci
 
 on:
@@ -22,9 +26,9 @@ jobs:
     name: tofu fmt + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
         with:
           tofu_version: "1.12.6"
           tofu_wrapper: false
@@ -46,9 +50,9 @@ jobs:
     name: ansible-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.13"
 
@@ -73,7 +77,7 @@ jobs:
     name: swarm stack config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # `docker stack config` parses and merges exactly like `docker stack
       # deploy`, so it catches the class of bug that reaches the swarm
@@ -97,7 +101,7 @@ jobs:
     name: stack declarations
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Catches drift that does not fail at author time: a stacks/<app>/ dir with
       # no [[stack]] block, a block with no matching dir or no file_paths, and a

@@ -4,9 +4,11 @@
 # /admin; the wrapper execs the image's /start.sh, which overriding the
 # entrypoint would otherwise drop.
 #
-# FIRST RUN: signups are open so you can create your account, then set
-# SIGNUPS_ALLOWED=false (and re-sync), or invite from /admin. Data is node-local,
-# so it is pinned to pool 03.
+# Registration is CLOSED (SIGNUPS_ALLOWED=false): Vaultwarden's hardening guide
+# recommends it, and although vault is not in the public allowlist a LAN/tailnet
+# peer could otherwise self-register. Create the first account by temporarily
+# setting it true, or invite from /admin. Data is node-local, so it is pinned to
+# pool 03.
 
 # Rolling updates: SQLite + node-local volume -> stop-first. Do NOT add
 # failure_action: rollback (README "Rolling updates").
@@ -18,7 +20,7 @@ x-update-config: &update-config
 
 services:
   vaultwarden:
-    image: vaultwarden/server:1.37.3
+    image: vaultwarden/server:1.37.3@sha256:1587c45feaa479f1f5e8af3b00eded36bff77bcf1880cf8dbf0541706dd470e0
     networks:
       - proxy
     secrets:
@@ -33,7 +35,8 @@ services:
     environment:
       TZ: Europe/Amsterdam
       DOMAIN: https://vault.swarm.huisman.dev
-      SIGNUPS_ALLOWED: "true"
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "false"
     healthcheck:
       test: ['CMD', '/healthcheck.sh']
       interval: 60s

@@ -19,7 +19,7 @@ x-update-config: &update-config
 
 services:
   forgejo:
-    image: codeberg.org/forgejo/forgejo:16.0.4
+    image: codeberg.org/forgejo/forgejo:16.0.4@sha256:a3e33d03e771d3e58b27de5573c3a25dc4f670583a6724c1878a6d0bbecf3556
     networks:
       - proxy
     volumes:

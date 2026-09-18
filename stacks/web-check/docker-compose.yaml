@@ -13,7 +13,7 @@ x-update-config: &update-config
 
 services:
   web-check:
-    image: lissy93/web-check:2.2.5
+    image: lissy93/web-check:2.2.5@sha256:7e2ef5261764fa71fa3c85c40c49d2957295b20d02068ab3c95e8727b67bac29
     networks:
       - proxy
     environment:

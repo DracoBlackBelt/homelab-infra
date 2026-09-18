@@ -7,11 +7,14 @@
 # existing database unreadable. The data is a host bind mount, not a volume.
 services:
   pocket-id:
-    image: pocketid/pocket-id:v2
+    image: pocketid/pocket-id:v2@sha256:01540977dcf4c7b41b1159f34d68e4632f2658d62790e460ca65a42722b13c4a
     restart: unless-stopped
     environment:
       APP_URL: https://id.huisman.dev
-      TRUST_PROXY: "true"
+      # Only the VPS edge (the `edge` bridge, 172.22.0.0/16) may supply the
+      # client IP via X-Forwarded-For. `true` trusts every source and would let
+      # a client spoof it, defeating rate limiting and audit logging.
+      TRUST_PROXY: 172.22.0.0/16
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       - /opt/pocket-id/data:/app/data

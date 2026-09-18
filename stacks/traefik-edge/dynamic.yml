@@ -1,18 +1,76 @@
 # Dynamic config for the VPS public edge (stacks/traefik-edge). Loaded by the
 # file provider; no docker socket, no swarm provider.
 #
-# The swarm router is an explicit ALLOWLIST: only the six named hosts resolve
+# The swarm routers are an explicit ALLOWLIST: only the named hosts resolve
 # here, so labelling a new internal app in the swarm does NOT expose it. To
-# publish another host, add it to the regex (public DNS is a wildcard, so no
+# publish another host, add it to a regex (public DNS is a wildcard, so no
 # per-host record is needed).
+#
+# Every published host gets `secure-headers`. Hosts with a browser-only UI
+# (home/Flame, kuma, zerobyte) additionally get `tinyauth` forward-auth, so the
+# public path requires the Pocket-ID SSO login BEFORE the app's own login. Apps
+# with non-browser clients are deliberately NOT behind forward-auth, because it
+# breaks them:
+#   * git (Forgejo): git-over-HTTPS uses `Authorization: token`, which a
+#     forward-auth middleware does not recognise (and exempting /api is a hole).
+#   * rss (FreshRSS), timeline (Dawarich): mobile/API clients cannot do the
+#     interactive OIDC redirect.
+# They keep their own app-level auth instead.
 http:
+  middlewares:
+    # Copy identity headers from a successful tinyauth response onto the
+    # forwarded request. tinyauth trusts only the edge network (its
+    # TINYAUTH_AUTH_TRUSTEDPROXIES), and Traefik computes the X-Forwarded-*
+    # itself (trustForwardHeader is left at its safe default of false).
+    tinyauth:
+      forwardAuth:
+        address: "http://tinyauth:3000/api/auth/traefik"
+        authResponseHeaders:
+          - remote-user
+          - remote-email
+          - remote-groups
+          - remote-sub
+
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: strict-origin-when-cross-origin
+
+    # Blunt credential stuffing against the login-bearing public hosts.
+    auth-ratelimit:
+      rateLimit:
+        average: 20
+        burst: 40
+
   routers:
     # Homelab swarm apps, mirrored under their internal names so the Host
     # reaches the swarm router unchanged (passHostHeader is true by default).
-    swarm:
-      rule: 'HostRegexp(`^(whoami|kuma|git|rss|timeline|home)\.swarm\.huisman\.dev$`)'
+    # Browser UIs: SSO-gated.
+    swarm-protected:
+      rule: 'HostRegexp(`^(home|kuma)\.swarm\.huisman\.dev$`)'
       entryPoints:
         - websecure
+      middlewares:
+        - secure-headers
+        - tinyauth
+      service: swarm-edge
+      tls:
+        certResolver: le
+        domains:
+          - main: "*.swarm.huisman.dev"
+
+    # Apps with non-browser clients: published, but on their own auth (see the
+    # header). whoami is intentionally absent -- a mesh canary does not belong
+    # on the public internet.
+    swarm-open:
+      rule: 'HostRegexp(`^(git|rss|timeline)\.swarm\.huisman\.dev$`)'
+      entryPoints:
+        - websecure
+      middlewares:
+        - secure-headers
       service: swarm-edge
       tls:
         certResolver: le
@@ -24,6 +82,9 @@ http:
       rule: 'Host(`id.huisman.dev`)'
       entryPoints:
         - websecure
+      middlewares:
+        - secure-headers
+        - auth-ratelimit
       service: pocket-id
       tls:
         certResolver: le
@@ -34,17 +95,24 @@ http:
       rule: 'Host(`auth.huisman.dev`)'
       entryPoints:
         - websecure
+      middlewares:
+        - secure-headers
+        - auth-ratelimit
       service: tinyauth
       tls:
         certResolver: le
         domains:
           - main: "*.huisman.dev"
 
-    # The backup UI also lives on the VPS (edge net), not the swarm.
+    # The backup UI also lives on the VPS (edge net), not the swarm. It is a
+    # privileged container (SYS_ADMIN, /dev/fuse), so it is SSO-gated too.
     zerobyte:
       rule: 'Host(`zerobyte.huisman.dev`)'
       entryPoints:
         - websecure
+      middlewares:
+        - secure-headers
+        - tinyauth
       service: zerobyte
       tls:
         certResolver: le

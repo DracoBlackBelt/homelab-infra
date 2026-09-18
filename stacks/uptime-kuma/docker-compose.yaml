@@ -13,7 +13,7 @@ x-update-config: &update-config
 
 services:
   uptime-kuma:
-    image: louislam/uptime-kuma:2.5.5
+    image: louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
     volumes:
       - uptime-kuma-data:/app/data
     networks:
