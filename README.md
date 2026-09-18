@@ -151,6 +151,12 @@ the edge serves its self-signed fallback, so clients report the host as unreacha
 netcup SCP firewall must allow outbound UDP and the matching inbound replies from source
 ports 53/123; it is stateless, so a one-way rule is not enough.
 
+Let's Encrypt caps issuance at **5 certificates per exact identifier set per 168 h**, so
+never force a re-issue just to test a token: Traefik reuses the cached `acme.json` and
+renews on its own. Tripping the cap leaves that name on the self-signed fallback until the
+window passes -- recover by restoring the cached `acme.json` (a copy of `/data/acme.json`),
+not by retrying.
+
 ### Placement: pools, not hostnames
 
 Swarm named volumes are **node-local**, so any service with a volume must be pinned. The
