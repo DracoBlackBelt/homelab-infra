@@ -1,21 +1,17 @@
-# Komodo users / user groups, synced like every other resource under komodo/.
+# Komodo user group for the AI agent's read-only Komodo MCP server (see README
+# "Agent access"). Permissions are not secret, so they live here; the API key
+# that authenticates as this user does NOT -- it stays on the workstation at
+# ~/.config/komodo/mcp-agent.env (mode 0600), created in the Komodo UI under
+# Settings -> API Keys.
 #
-# This declares the read-only identity used by the AI agent's Komodo MCP server
-# (see README "Agent access"). Permissions are not secret, so they belong in
-# git; the API key that authenticates as this user does NOT -- it stays on the
-# workstation at ~/.config/komodo/mcp-agent.env (mode 0600) and is created in
-# the Komodo UI under Settings -> API Keys. Nothing here grants actions: the
-# agent is deliberately unable to deploy, destroy, edit config or open a shell.
-#
-# Read, with NO `specific` permissions. The granular ones (Logs, Inspect,
+# Read, with NO `specific` permissions: the granular ones (Logs, Inspect,
 # Terminal, Attach, Processes) reach into container env, logs and shells -- i.e.
 # secrets -- so the agent gets none of them. Read alone gives full visibility of
-# resource state and blocks every attempt to act (Komodo enforces that
-# server-side, so a buggy or hostile MCP client still cannot change anything).
+# resource state while blocking every action server-side, so even a buggy or
+# hostile MCP client cannot change anything.
 #
 # The `users` entry must match an existing Komodo service user; create the user
-# (and its API key) before this file is synced, or the group references a name
-# that does not exist.
+# (and its API key) before this file is synced.
 
 [[user_group]]
 name = "mcp-readonly"

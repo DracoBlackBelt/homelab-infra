@@ -1,17 +1,15 @@
-# Vaultwarden (Bitwarden-compatible server). Routed by Traefik (Host on
-# websecure + shared le resolver); no published port. Websockets are served on
-# the same port as HTTP by current versions, so no second port is needed.
-#
-# ADMIN_TOKEN comes from the swarm secret `vaultwarden_admin_token` (seeded by
-# ansible/secrets.yml from SOPS) and enables /admin. The image's CMD is
-# /start.sh, so the wrapper (which overrides the entrypoint) execs it directly.
+# Bitwarden-compatible password server. Routed by Traefik (Host on websecure +
+# shared le resolver); no published port (websockets share the HTTP port).
+# ADMIN_TOKEN comes from the swarm secret `vaultwarden_admin_token` and enables
+# /admin; the wrapper execs the image's /start.sh, which overriding the
+# entrypoint would otherwise drop.
 #
 # FIRST RUN: signups are open so you can create your account, then set
-# SIGNUPS_ALLOWED=false (and re-sync) -- or invite from /admin. Data is a
-# node-local volume, so it is pinned to one node.
+# SIGNUPS_ALLOWED=false (and re-sync), or invite from /admin. Data is node-local,
+# so it is pinned to pool 03.
 
-# Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: SQLite + node-local volume -> stop-first. Do NOT add
+# failure_action: rollback (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1

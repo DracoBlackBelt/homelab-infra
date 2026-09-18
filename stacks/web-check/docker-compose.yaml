@@ -1,14 +1,10 @@
-# Web-Check: site/security analysis. Stateless. Routed by Traefik (Host on
-# websecure + shared le resolver); no published port.
-#
-# Deliberately internal-only: web-check fetches arbitrary URLs server-side
-# (SSRF), so it must not be exposed publicly even behind auth.
-#
-# Placement: NOT pinned (no volumes). `node.role == worker` keeps it off the
-# raft managers without coupling it to one host.
+# Site/security analysis, stateless. Routed by Traefik (Host on websecure +
+# shared le resolver); no published port. Deliberately internal-only: it fetches
+# arbitrary URLs server-side (SSRF), so it must not be exposed publicly even
+# behind auth. Placement: any worker (no volumes).
 
-# Rolling updates: stateless, so start-first for zero-downtime.
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: stateless, start-first. Do NOT add failure_action: rollback
+# (README "Rolling updates").
 x-update-config: &update-config
   order: start-first
   parallelism: 1
@@ -22,9 +18,9 @@ services:
       - proxy
     environment:
       TZ: Europe/Amsterdam
-    # The web-check image ships no shell HTTP client, so use its own checker
-    # (node healthcheck.js). A failing check gets the task replaced by Swarm,
-    # so it must be a command that actually exists in the image.
+    # The image ships no shell HTTP client, so use its own checker
+    # (node healthcheck.js). Swarm replaces a task that reports unhealthy, so
+    # the command must actually exist.
     healthcheck:
       test: ['CMD', 'node', 'healthcheck.js']
       interval: 30s

@@ -1,18 +1,15 @@
-# Komodo resources as code. This whole directory is synced by ONE bootstrap
-# ResourceSync created in the Core UI -- name "homelab-infra", repo
-# DracoBlackBelt/homelab-infra, branch main, path komodo/. It is the one object
-# deliberately NOT declared here: Komodo refuses to update a ResourceSync while
-# it is running ("ResourceSync busy"), so a self-declaration could never apply
-# and it fails the rest of the run. Every other object here is
-# diffed/created/updated from git; the UI shows the computed actions, or the
-# sync webhook runs them on push.
+# Komodo resources as code, synced by ONE bootstrap ResourceSync created in the
+# Core UI (name "homelab-infra", repo DracoBlackBelt/homelab-infra, branch main,
+# path komodo/). That sync is the one object deliberately NOT declared here:
+# Komodo refuses to update a ResourceSync while it is running ("ResourceSync
+# busy"), so a self-declaration could never apply and it fails the rest of the
+# run. Every other object is diffed/created/updated from git.
 #
-# Rule: nothing secret in these files. Synced TOML is plaintext in git, so
-# credentials stay out (Komodo secrets/variables, or Swarm secrets).
+# Rule: nothing secret in these files -- synced TOML is plaintext in git.
 
 # The swarm converged by ansible/swarm.yml. This resource does NOT manage
-# membership -- it registers the manager Servers Komodo talks through (tried
-# in order; all are managers, so losing one keeps deploys alive via quorum).
+# membership -- it registers the manager Servers Komodo talks through (tried in
+# order; all are managers, so losing one keeps deploys alive via quorum).
 [[swarm]]
 name = "homelab"
 description = "Docker Swarm on the homelab-infra VMs (3 managers + 3 workers)"

@@ -1,30 +1,24 @@
 # Converge a Docker Swarm across the VMs.
 #
-# Why this lives in Ansible and not Komodo: Komodo's Swarm resource only
-# *points at* manager Servers it should talk to -- it deliberately does not
-# run `docker swarm init` or the joins for you (its Join button just prints
-# the command). So cluster membership is provisioned here; the Swarm resource
-# (komodo/swarms.toml) then just observes and deploys onto it.
+# Komodo's Swarm resource only *points at* manager Servers -- it never runs
+# `swarm init` or the joins -- so membership is provisioned here (and merely
+# observed by komodo/swarms.toml). `swarm_manager_hosts` (group_vars/vms/all.yml)
+# are the 3 raft managers (quorum survives one loss) and hold the Traefik edge;
+# every other member joins as a WORKER running app tasks, so an app OOM can't
+# disturb raft. `swarm_init_manager` is the bootstrap leader and join point;
+# every node advertises on its LAN address (vmbr0) -- ports 2377/7946/4789 stay
+# on-LAN.
 #
-# Topology: `swarm_manager_hosts` (group_vars/vms/all.yml) are the raft
-# MANAGERS -- 3 nodes, quorum that survives losing one -- and hold the Traefik
-# edge; every other vms member joins as a WORKER running app tasks, so an OOM
-# on an app can't disturb raft. `swarm_init_manager` is the bootstrap leader
-# and the join point; every node advertises on its LAN address (vmbr0), not the
-# tailnet -- ports 2377/7946/4789 stay on-LAN.
+# Lost bootstrap manager: `docker node rm -f <host>` from another manager,
+# repoint `swarm_init_manager` at a survivor, re-run. Survivors keep state.
 #
-# If the init manager dies for real: demote/remove it from another manager
-# (`docker node rm -f <host>`), point `swarm_init_manager` at a survivor, and
-# re-run. Surviving nodes need nothing -- they keep cluster state.
+# Two Debian+swarm ingress traps, both handled below (see README "Swarm"):
+# openvswitch is never loaded, and swarm's stock 10.0.0.0/24 ingress collides
+# with this LAN. Fresh clusters dodge the latter via --default-addr-pool; the
+# live cluster was migrated to 10.10.0.0/24 by hand on 2026-09-15.
 #
-# Two Debian+swarm ingress traps, both handled below: the openvswitch kernel
-# module is never loaded (breaks published ports), and swarm's default
-# ingress subnet 10.0.0.0/24 collides with this LAN (blackholes routing-mesh
-# replies) -- fresh clusters dodge it via --default-addr-pool, the live
-# cluster was migrated to 10.10.0.0/24 by hand on 2026-09-15.
-#
-# Idempotent: nodes already in a swarm are never re-inited, re-joined, or
-# left. A node stuck in `pending` aborts the play rather than being forced.
+# Idempotent: active nodes are never re-inited, re-joined or left. A `pending`
+# node aborts the play rather than being forced.
 #
 # Usage: cd ansible && ansible-playbook swarm.yml
 - name: Form the Docker Swarm
@@ -36,8 +30,8 @@
       ansible.builtin.systemd_service:
         name: docker
         state: restarted
-      # One node at a time: restarting dockerd restarts that node's containers,
-      # and every node is a manager -- don't blip the whole cluster at once.
+      # One node at a time: restarting dockerd restarts that node's containers
+      # and briefly un-Ready's it -- don't blip several at once.
       throttle: 1
 
   tasks:

@@ -1,18 +1,16 @@
-# Forgejo: self-hosted git. SQLite on a node-local volume, single replica pinned
-# to one node (a swarm local volume lives on the node its task runs on).
-# Routed by Traefik (Host on websecure + shared le resolver); no published port.
+# Self-hosted git. SQLite on a node-local volume, so single replica pinned to
+# pool 02 (README "Placement"). Routed by Traefik (Host on websecure + shared le
+# resolver); no published port. SSH is off for now -- enabling it later means
+# publishing a non-22 port via ingress.
 #
-# SSH is disabled for now -- git is HTTP(S)-only through the Traefik route.
-# Adding SSH later means publishing a non-22 port via ingress.
-#
-# INSTALL_LOCK skips the web installer; with registration disabled, create the
-# first admin from a node after the task is running:
-#   docker exec <task-container> forgejo admin user create \
-#     --admin --username <u> --email <e> --password <pw> --must-change-password=false
-# (Forgejo generates SECRET_KEY/INTERNAL_TOKEN itself, into app.ini in /data.)
+# INSTALL_LOCK skips the web installer. With registration disabled, create the
+# first admin from a node once the task runs (Forgejo generates
+# SECRET_KEY/INTERNAL_TOKEN into app.ini itself):
+#   docker exec <task-container> forgejo admin user create --admin \
+#     --username <u> --email <e> --password <pw> --must-change-password=false
 
-# Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: SQLite + node-local volume -> stop-first. Do NOT add
+# failure_action: rollback (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1

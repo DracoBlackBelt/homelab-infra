@@ -1,27 +1,20 @@
 # Build the golden template (vmid 9000) that tofu/vms.tf clones every VM from.
 #
-# Why this is a play and not an OpenTofu resource: baking software into a disk
-# means booting a guest and running apt, which OpenTofu cannot express. See
-# docs/golden-template.md -- it remains the explanation of *why* each step is
-# the way it is (the udev/agent subtlety, the UEFI machine type), while this
-# play is the reproduction of it.
+# A play, not an OpenTofu resource: baking software into a disk means booting a
+# guest and running apt, which OpenTofu cannot express. docs/golden-template.md
+# remains the "why" for each step; this play reproduces it.
 #
-# Runs against the Proxmox host itself (inventory group `pve`), not the VMs.
-# The guest half runs over SSH against a throwaway address, because the guest
-# agent is exactly what is being installed and so cannot be used to drive it.
+# Runs against the Proxmox host (`pve`); the guest half runs over SSH against a
+# throwaway address, because the guest agent is what is being installed.
 #
-# Usage:
 #   cd ansible && ansible-playbook template.yml
 #   cd ansible && ansible-playbook template.yml -e template_rebuild=true
 #
-# Safety: if the vmid already holds a *template* this is a no-op unless
-# template_rebuild is set; if it holds a non-template it refuses to touch it
-# (that is either a half-finished build or a real VM) and tells you to destroy
-# it deliberately. A sealed template must never be booted again -- cloud-init
-# would re-bake an instance id and every clone would inherit it.
-#
-# A build that fails part-way leaves the VM in place (never auto-destroyed);
-# clear it with `qm destroy 9000 --purge` and re-run.
+# Safety: a vmid already holding a template is a no-op unless template_rebuild is
+# set; a vmid holding anything else is refused (half-finished build, or a real
+# VM). A sealed template must never be booted again -- cloud-init would re-bake
+# an instance id into every clone. A failed build is left in place: destroy it
+# with `qm destroy 9000 --purge` and re-run.
 
 - name: Build the golden template (Proxmox side)
   hosts: pve

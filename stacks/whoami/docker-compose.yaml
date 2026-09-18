@@ -1,15 +1,11 @@
-# Routed by Traefik: Host() on websecure, TLS via the shared le resolver
-# (one wildcard cert covers *.swarm.huisman.dev). No published port:
-# Traefik reaches whoami:80 over the shared `proxy` overlay.
-#
-# Mesh canary: deliberately NOT pinned and no healthcheck -- the image is
-# `scratch` (no shell, no HTTP client, and no health-check flag), so a container
-# healthcheck is impossible. Its liveness is checked externally by Uptime Kuma.
-# Left free to land on any node on purpose: proving the routing mesh works from
-# every node is the point.
+# Mesh canary: routed by Traefik (Host on websecure + the shared le resolver),
+# no published port, and deliberately NOT pinned -- proving the mesh works from
+# every node is the point. No container healthcheck is possible: it is a
+# `scratch` image (no shell, no HTTP client, no health-check flag), so Uptime
+# Kuma probes it externally.
 
-# Rolling updates: stateless, so start-first for zero-downtime.
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: stateless, start-first. Do NOT add failure_action: rollback
+# (README "Rolling updates").
 x-update-config: &update-config
   order: start-first
   parallelism: 1

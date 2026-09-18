@@ -55,10 +55,9 @@ def tofu_outputs():
 
 
 def inventory():
-    # The `or {}` fallbacks are defensive: dict defaults only cover the
-    # missing-key case, so a present-but-null vm_inventory (or null value)
-    # would otherwise reach sorted(None) and crash the whole inventory
-    # instead of degrading to empty.
+    # The `or {}` fallbacks matter: dict defaults only cover a missing key, so a
+    # present-but-null vm_inventory would otherwise reach sorted(None) and crash
+    # the whole inventory instead of degrading to empty.
     hostvars = (tofu_outputs().get("vm_inventory") or {}).get("value") or {}
     if not hostvars:
         warn(f"no VMs in the tofu state -- has `tofu -chdir={TOFU_DIR} apply` run?")

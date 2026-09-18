@@ -2,7 +2,7 @@
 #
 # The VMs are configured through tofu + the vms group; this is the one host that
 # is neither created nor cloned by this repo, but still gets configured by it
-# (template.yml builds the golden template there; storage.yml will own the NFS
+# (template.yml builds the golden template there; a later play will own the NFS
 # export its ZFS pool backs).
 
 # --- golden template build (template.yml) -----------------------------------

@@ -1,12 +1,9 @@
 # Install Docker Engine + Compose plugin from Docker's official apt repo.
 #
-# Komodo Periphery acts on the *host* Docker daemon (it runs as a root systemd
-# service, see komodo.yml), so any VM that should host containers needs this
-# before Core can deploy stacks to it.
+# Komodo Periphery acts on the *host* Docker daemon (root systemd service, see
+# komodo.yml), so any VM that should host containers needs this first.
 #
-# Usage:
-#   cd ansible && ansible-playbook docker.yml
-#   cd ansible && ansible-playbook docker.yml --limit komodo-srv-01
+# Usage: cd ansible && ansible-playbook docker.yml [--limit <vm>]
 - name: Install Docker Engine
   hosts: vms
   gather_facts: true
@@ -16,8 +13,8 @@
     docker_codename: "{{ ansible_facts['distribution_release'] }}"
 
   handlers:
-    # One node at a time: restarting dockerd restarts that node's containers,
-    # and every node is a manager. Traefik runs global, so the edge stays up.
+    # One node at a time: restarting dockerd restarts that node's containers.
+    # The routing mesh keeps serving the edge from the other nodes meanwhile.
     - name: Restart docker
       ansible.builtin.systemd_service:
         name: docker

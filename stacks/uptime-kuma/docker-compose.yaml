@@ -1,14 +1,10 @@
-# Pinned to the current upstream stable tag (floating ':1' is explicitly not allowed here).
-# Single replica with a named volume: swarm local volumes live on the node the task runs
-# on, so pin it to pool "01" -- if the task is ever rescheduled, it comes back with
-# its data instead of a blank slate on another node (and app tasks stay off the
-# raft managers).
-# Routed by Traefik (Host() on websecure + shared le resolver); no published port.
-# kuma's own monitors can use http://whoami -- cross-stack service DNS over the
-# `proxy` overlay, which never touches Traefik's http->https redirect.
+# Uptime monitoring webui. Routed by Traefik (Host on websecure + shared le
+# resolver); no published port. Pinned to pool 01 because the SQLite volume is
+# node-local (README "Placement"). Kuma's own monitors can use http://whoami --
+# cross-stack service DNS over `proxy` that skips Traefik's http->https redirect.
 
-# Rolling updates: SQLite + node-local volume, so stop-first (never two writers).
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: SQLite + node-local volume -> stop-first (never two writers).
+# Do NOT add failure_action: rollback (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
@@ -22,9 +18,8 @@ services:
       - uptime-kuma-data:/app/data
     networks:
       - proxy
-    # Declared explicitly (matching the image's own HEALTHCHECK -- a compiled Go
-    # binary at /app/extra/healthcheck) so it is visible in the stack file. The
-    # 180s start_period covers the first-run SQLite init.
+    # The image's own HEALTHCHECK (a compiled Go binary); the 180s start_period
+    # covers first-run SQLite init.
     healthcheck:
       test: ['CMD', 'extra/healthcheck']
       interval: 60s

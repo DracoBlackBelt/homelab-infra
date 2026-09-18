@@ -1,12 +1,15 @@
 # Golden template (vmid 9000)
 
-The template OpenTofu clones VMs from. Built by hand on the Proxmox host and deliberately
-**not** an OpenTofu resource: baking software into a disk means booting a guest and running
-apt, which OpenTofu cannot express. Keeping it out of state also means OpenTofu never
-claims to know what is on the disk.
+The template OpenTofu clones VMs from. It is deliberately **not** an OpenTofu resource:
+baking software into a disk means booting a guest and running apt, which OpenTofu cannot
+express -- and keeping it out of state means OpenTofu never claims to know what is on the
+disk.
 
 `tofu/templates.tf` only *reads* it, through a data source, so a missing or renumbered
 template fails at plan time instead of half-way through a clone.
+
+It can be built by hand on the Proxmox host (this doc) or reproduced end to end by
+`cd ansible && ansible-playbook template.yml`, which performs the same steps below.
 
 Contents:
 
@@ -57,9 +60,17 @@ qm create 9000 --name debian13-cloud-template --ostype l26 \
 qm set 9000 --efidisk0 fastpool:0,efitype=4m,pre-enrolled-keys=0
 qm set 9000 --scsi0 fastpool:0,discard=on,iothread=1,ssd=1,import-from=/var/lib/vz/template/iso/debian-13-genericcloud-amd64.qcow2
 qm set 9000 --ide2 fastpool:cloudinit --boot order=scsi0
-qm set 9000 --ipconfig0 ip=10.0.0.99/24,gw=10.0.0.1 --ciuser debian --sshkeys ~/.ssh/authorized_keys
+qm set 9000 --ipconfig0 ip=10.0.0.99/24,gw=10.0.0.1 --ciuser debian --sshkeys /root/template-build-key.pub
 qm set 9000 --description "Golden template - see docs/golden-template.md"
 qm start 9000
+```
+
+`--sshkeys` takes a file **on the Proxmox host**, and `~/.ssh/authorized_keys` is not it:
+this host is reached over Tailscale SSH, which does not populate that file. Stage your
+controller key instead (the play does exactly this):
+
+```bash
+scp ~/.ssh/id_ed25519.pub root@prox.tail9ef5e7.ts.net:/root/template-build-key.pub
 ```
 
 Then, from your workstation:
@@ -95,12 +106,14 @@ SSH key, and network config.
 ```bash
 ssh debian@10.0.0.99 'sudo cloud-init clean --logs && \
   sudo truncate -s 0 /etc/machine-id && \
-  sudo rm -f /home/debian/.ssh/authorized_keys && \
-  sudo poweroff'
+  sudo rm -f /home/debian/.ssh/authorized_keys'
+ssh debian@10.0.0.99 sudo poweroff
 ```
 
 Removing `authorized_keys` leaves cloud-init as the only source of SSH keys, so a clone
-cannot inherit a key its own config never granted.
+cannot inherit a key its own config never granted. (The play issues the shutdown from the
+Proxmox host via `qm shutdown` instead of `poweroff` in the guest, so the SSH connection
+does not die mid-task, and it removes the staged build key from `/root` afterwards.)
 
 Do **not** boot 9000 again after this — cloud-init would re-run and re-bake an instance
 id. Go straight to sealing it, back on the Proxmox host:

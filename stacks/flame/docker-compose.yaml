@@ -1,16 +1,13 @@
-# Flame: self-hosted start page/dashboard. Routed by Traefik (Host on
-# websecure + shared le resolver); no published port.
+# Flame start page. Routed by Traefik (Host on websecure + shared le resolver);
+# no published port. PASSWORD comes from the swarm secret `flame_password`; the
+# sh wrapper exports it from /run/secrets.
 #
-# PASSWORD comes from the swarm secret `flame_password` (seeded by
-# ansible/secrets.yml from SOPS); the sh wrapper exports it from /run/secrets.
-# GOTCHA: the image's CMD is `sh -c 'chown -R node /app/data && node server.js'`
-# -- because the wrapper overrides the entrypoint, that CMD must be re-declared
-# under `command:` (docker stack deploy drops the image CMD otherwise; see
-# stacks/freshrss for the same trap).
+# GOTCHA: the image CMD is `sh -c 'chown -R node /app/data && node server.js'`,
+# and overriding the entrypoint drops the CMD -- so it must be re-declared under
+# `command:` (same trap as stacks/freshrss).
 
-# Rolling updates: node-local volume + an entrypoint that `chown -R`s it, so
-# stop-first (two tasks would race the chown/write). Do NOT add
-# failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: the entrypoint `chown -R`s a node-local volume, so stop-first
+# (two tasks would race). Do NOT add failure_action: rollback (README).
 x-update-config: &update-config
   order: stop-first
   parallelism: 1

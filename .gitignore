@@ -10,6 +10,9 @@
 ansible/inventory/*.cache
 ansible/.ansible/
 
+# Local tool/audit logs.
+logs/
+
 # Saved plans are binary and can embed sensitive values: never commit them.
 *.tfplan
 

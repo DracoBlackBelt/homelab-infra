@@ -1,14 +1,8 @@
-# Full provisioning chain for every VM, in dependency order:
-#   1. hardening.yml -- pin the APT auto-upgrade policy (no auto-reboot)
-#   2. tailscale.yml -- join the tailnet (the Komodo Core address is
-#      tailnet-only, so everything below needs this first)
-#   3. docker.yml    -- Docker Engine, which both Swarm and Periphery act on
-#   4. swarm.yml     -- converge the Docker Swarm (all nodes managers)
-#   5. komodo.yml    -- periphery agent, which dials Core and self-onboards
+# Full provisioning chain: hardening -> tailscale -> docker -> swarm -> komodo.
+# Order matters -- the Komodo Core address is tailnet-only, so tailscale must
+# come first. Each play also runs standalone.
 #
-# Each playbook can also be run standalone. Usage:
-#   cd ansible && ansible-playbook site.yml
-#   cd ansible && ansible-playbook site.yml --limit komodo-srv-01
+#   cd ansible && ansible-playbook site.yml [--limit <vm>]
 - name: Harden the hosts
   import_playbook: hardening.yml
 - name: Join the tailnet

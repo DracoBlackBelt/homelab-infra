@@ -1,15 +1,11 @@
-# The Proxmox host itself, for plays that configure it rather than clone from
-# it (currently template.yml, which builds the golden template).
+# The Proxmox host itself, for plays that configure it rather than clone from it
+# (currently template.yml). The VMs are deliberately NOT here: OpenTofu creates
+# them, so they come from inventory/tofu.py. This adds the one host tofu does not
+# manage -- the same host tofu/provider.tf talks to over the API.
 #
-# The VMs are deliberately NOT here: they are created by OpenTofu, so they come
-# from the dynamic script (inventory/tofu.py) and stay its single source of
-# truth. This file only adds the one host tofu does not manage -- the same host
-# `tofu/provider.tf` talks to over the API.
-#
-# The host is reached over the tailnet, not the LAN: root@10.0.0.2 rejects key
-# auth, while the host's Tailscale SSH authorizes root. Same MagicDNS tailnet as
-# komodo_core_address in group_vars/vms/all.yml. ansible.cfg disables host key
-# checking, so rebuilds do not need known_hosts curation.
+# Reached over the tailnet, not the LAN: root@10.0.0.2 rejects key auth, while
+# the host's Tailscale SSH authorizes root (same MagicDNS tailnet as
+# komodo_core_address). ansible.cfg disables host key checking.
 all:
   children:
     pve:

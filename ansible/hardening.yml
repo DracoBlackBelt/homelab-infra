@@ -1,9 +1,8 @@
-# Host hygiene for every VM. Currently this pins the APT auto-upgrade policy:
-# the Debian cloud image already enables unattended-upgrades for security
-# updates, but its reboot behaviour is left at the package default. Pinning it
-# here means a future image change can't silently start rebooting swarm
-# managers -- all nodes are raft quorum members, so they are rebooted manually
-# and staggered, never together.
+# Host hygiene for every VM. Pins the APT auto-upgrade policy: the Debian cloud
+# image already enables unattended-upgrades for security updates, but its reboot
+# behaviour is a package default that could change -- so auto-reboot is forced
+# off here. All reboots are manual and staggered (raft quorum on the managers,
+# app uptime on the workers).
 #
 # Usage: cd ansible && ansible-playbook hardening.yml
 - name: Host hygiene

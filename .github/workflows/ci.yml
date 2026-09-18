@@ -99,8 +99,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Catches the two drift bugs we have actually hit: a stacks/<app>/ dir
-      # with no [[stack]] block (never deploys), and a [[stack]] block whose
-      # file_paths don't exist (the sync fails to deploy it).
+      # Catches drift that does not fail at author time: a stacks/<app>/ dir with
+      # no [[stack]] block, a block with no matching dir or no file_paths, and a
+      # file_paths entry pointing at a file that is not there.
       - name: Check stacks/ <-> komodo/stacks.toml
         run: python3 .github/scripts/check_stack_declarations.py

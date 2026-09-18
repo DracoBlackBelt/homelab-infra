@@ -1,26 +1,18 @@
 # Install Tailscale from the official apt repo and join every VM to the tailnet.
 #
-# The auth key lives in group_vars/vms/secrets.sops.yml (SOPS/age encrypted; the
-# age key stays outside the repo -- see ansible.cfg and AGENTS.md). Generate a key
-# that is REUSABLE + EPHEMERAL at
-# https://login.tailscale.com/admin/settings/keys :
-#   - reusable:  one key registers every current and future VM
-#   - ephemeral: each node is removed from the tailnet after it has been
-#     offline long enough; rerunning this playbook re-registers it with the
-#     same key -- no secret edit needed
-# Auth keys themselves expire after at most 90 days; swap in a fresh key with
-#   sops ansible/group_vars/vms/secrets.sops.yml
-# when that happens (already-registered nodes are unaffected until their own
-# 180-day node-key expiry).
+# Auth key: group_vars/vms/secrets.sops.yml (SOPS/age; the age key stays outside
+# the repo -- see ansible.cfg). Generate a REUSABLE + EPHEMERAL key at
+# https://login.tailscale.com/admin/settings/keys: reusable = one key covers
+# every current and future VM; ephemeral = long-offline nodes are GC'd and
+# re-register with the same key. Auth keys expire after at most 90 days
+# (already-registered nodes are unaffected until their own 180-day node-key
+# expiry) -- swap in a fresh one with `sops ansible/group_vars/vms/secrets.sops.yml`.
 #
-# The key is handed to `tailscale up` via a mode-0600 temp file
-# (--auth-key=file://...) because the bare CLI ignores TS_AUTHKEY and the
-# in-argv flag can be echoed back by tailscale's own error messages.
+# The key reaches `tailscale up` via a mode-0600 temp file (--auth-key=file://):
+# the bare CLI ignores TS_AUTHKEY (containerboot/tsnet only), and an in-argv flag
+# can be echoed back in tailscale's own error output.
 #
-# Usage:
-#   cd ansible && ansible-playbook tailscale.yml
-#   cd ansible && ansible-playbook tailscale.yml --tags install   # package only
-#   cd ansible && ansible-playbook tailscale.yml --limit komodo-srv-01
+# Usage: cd ansible && ansible-playbook tailscale.yml [--tags install] [--limit <vm>]
 - name: Install and register Tailscale
   hosts: vms
   gather_facts: true
@@ -92,10 +84,6 @@
         or tailscale_status.stdout is not search('"BackendState"\s*:\s*"(Running|Starting)"')
       tags: register
       block:
-        # The CLI (1.102) does NOT read a TS_AUTHKEY env var -- only
-        # containerboot/tsnet do. --auth-key=file:// keeps the key out of argv
-        # AND out of the guard-error text that `tailscale up` prints when it
-        # re-echoes the full command line.
         - name: Write the auth key to a root-only temp file
           ansible.builtin.copy:
             content: "{{ tailscale_auth_key }}"

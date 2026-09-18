@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Keep stacks/ and komodo/stacks.toml in step.
 
-The ResourceSync only ever deploys what komodo/stacks.toml declares, and it
-resolves each declaration's `file_paths` inside the repo. That gives two easy
-ways to end up silently wrong:
+The ResourceSync only deploys what komodo/stacks.toml declares, resolving each
+declaration's `file_paths` inside the repo. Ways to end up silently wrong:
 
   * a stacks/<app>/ directory with no matching [[stack]] -- never deployed;
-  * a [[stack]] block whose file_paths point at nothing -- deploy fails;
-  * a [[stack]] for a directory that no longer exists -- dead resource.
+  * a [[stack]] with no directory, or no file_paths -- dead or empty resource;
+  * file_paths pointing at a missing file -- deploy fails.
 
 None of those fail at author time, so they are checked here (and by
 `make check-stacks`).

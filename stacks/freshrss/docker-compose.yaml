@@ -1,30 +1,20 @@
-# FreshRSS + PostgreSQL: the first multi-service stateful stack.
-# Architecture notes (deliberate teaching points):
+# FreshRSS + PostgreSQL: the multi-service stateful pattern.
 #  * The DB joins ONLY the stack-local `db` network -- no proxy overlay, no
-#    published port, no Traefik router: it is structurally unreachable from
-#    anything except FreshRSS itself.
-#  * FreshRSS data + Postgres data are named volumes, so BOTH services are
-#    pinned to pool "03" (the data worker), keeping app tasks off the raft
-#    managers.
-#  * One swarm secret, two consumption patterns: Postgres natively supports
-#    _FILE (POSTGRES_PASSWORD_FILE), FreshRSS does not -- so its entrypoint
-#    is the proven sh wrapper that exports DB_PASSWORD from /run/secrets and
-#    execs the image's own ./Docker/entrypoint.sh (absolute; workdir-relative
-#    would work but this is clearer). Every $ must be doubled for compose.
-#  * FRESHRSS_INSTALL auto-provisions config.php on first boot (idempotent:
-#    already-installed exits 3 and is logged, not fatal). The $${DB_PASSWORD}
-#    inside it is expanded by the image's own `eval echo` at boot, pulling the
-#    value the wrapper exported -- so the password never appears in git. Keep
-#    the secret alphanumeric (eval + shell word-splitting); `openssl rand -hex`
-#    qualifies. NOTE: install args only apply to the FIRST boot; changing them
-#    later needs a fresh volume (or `cli/reconfigure.php` by hand).
-#  * No account is created here: first real step is an admin user via the
-#    container's cli/create-user.php (Komodo terminal) -- keeps credentials
-#    out of git.
-#  * Resource limits are the swarm-side seatbelts for a 900 MB node.
+#    published port, no router: unreachable except from FreshRSS.
+#  * Both services own node-local volumes, so both are pinned to pool 03.
+#  * Two secret patterns: Postgres reads POSTGRES_PASSWORD_FILE natively;
+#    FreshRSS reads env only, so the wrapper exports DB_PASSWORD from
+#    /run/secrets and execs the image entrypoint (every $ doubled).
+#  * FRESHRSS_INSTALL auto-provisions config.php on first boot; its
+#    $${DB_PASSWORD} is expanded by the image's own `eval echo` at boot, so the
+#    password never lands in git. Keep the secret alphanumeric -- eval +
+#    word-splitting; `openssl rand -hex` qualifies. Install args apply only on
+#    the FIRST boot: changing them needs a fresh volume (or cli/reconfigure.php).
+#  * No account is created here: make the admin via cli/create-user.php (Komodo
+#    terminal), which keeps credentials out of git.
 
-# Rolling updates: both services own node-local volumes, so stop-first.
-# Do NOT add failure_action: rollback -- see README "Rolling updates" (bollard).
+# Rolling updates: both services own node-local volumes -> stop-first. Do NOT add
+# failure_action: rollback (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
@@ -47,11 +37,10 @@ services:
       - -c
       - 'export DB_PASSWORD="$$(cat /run/secrets/freshrss_db_password)"; exec /var/www/FreshRSS/Docker/entrypoint.sh "$$@"'
       - sh
-    # GOTCHA (cost us a silent exit-0 crashloop): `docker stack deploy` does
-    # NOT append the image CMD when entrypoint is overridden -- Args came out
-    # empty, entrypoint.sh's final `exec "$@"` exec'd nothing. So redeclare
-    # the image's exact CMD here (from Docker/Dockerfile @ 1.30.0); it flows
-    # through the wrapper's "$@" into entrypoint.sh's final exec. All $ doubled.
+    # GOTCHA (cost a silent exit-0 crashloop): `docker stack deploy` does NOT
+    # append the image CMD when entrypoint is overridden, so entrypoint.sh's
+    # final `exec "$@"` exec'd nothing. Redeclare the image's exact CMD here
+    # (Docker/Dockerfile @ 1.30.0); all $ doubled.
     command:
       - /bin/sh
       - -c

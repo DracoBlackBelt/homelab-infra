@@ -1,31 +1,15 @@
-# Edge router for the swarm: v3-native Swarm provider reads routing labels
-# off SERVICES (they live in each app's compose file under deploy.labels).
-# Steady state: client -> any node :80 (ingress mesh) -> traefik (one task) ->
-# proxy overlay -> app:port; :80 308s to :443 and TLS is served with a single
-# Let's Encrypt wildcard cert (Cloudflare DNS-01).
+# Edge router for the swarm. The v3 Swarm provider reads routing from labels on
+# SERVICES (defined in each app's compose), so adding a route never redeploys
+# Traefik. Steady state: client -> any node :80/:443 (ingress mesh) -> this one
+# task -> `proxy` overlay -> app:port; :80 308s to :443 and TLS is one Let's
+# Encrypt wildcard via Cloudflare DNS-01. See README "Routing".
 #
-# Secret plumbing: the Cloudflare token is created OUT of git (Komodo UI ->
-# swarm 'homelab' -> Secrets -> cloudflare_api_token) and referenced here by
-# name only. lego (Traefik's ACME lib) resolves any provider variable suffixed
-# `_FILE` by reading that file (it strips one trailing newline), so the token
-# needs no sh wrapper at all -- point CF_DNS_API_TOKEN_FILE at the mounted
-# secret and Traefik reads it natively. This retires the old wrapper, and with
-# it the trap that overriding the entrypoint drops the image CMD (exit 127).
+# The image is ENTRYPOINT /entrypoint.sh + CMD ["traefik"], and a compose
+# `command:` REPLACES the CMD -- keep `traefik` first below, or /entrypoint.sh
+# tries to exec "--entrypoints..." as a binary.
 #
-# The image contract is ENTRYPOINT ["/entrypoint.sh"] + CMD ["traefik"], and a
-# compose `command:` REPLACES the CMD -- so `traefik` must stay the first
-# element below, or /entrypoint.sh tries to exec "--entrypoints..." as a binary.
-#
-# acme.json lives on a node-local volume. There is exactly ONE edge task (see
-# `deploy` below), so there is one copy and one wildcard cert -- no shared
-# storage, no distributed lock, nothing racing on the Cloudflare TXT record.
-# That is the whole reason the edge is replicated:1 and not one task per node.
-#
-# Rolling-update policy. stop-first is REQUIRED here, not cosmetic: under
-# start-first Swarm would briefly run TWO Traefik tasks against one acme.json --
-# the exact ACME race OSS Traefik cannot resolve (only one task may hold the
-# wildcard and answer the DNS-01 challenge). Do NOT add failure_action:
-# rollback -- Komodo's bundled bollard cannot parse it (README "Rolling updates").
+# stop-first is REQUIRED: start-first would run two tasks against one acme.json.
+# Do NOT add failure_action: rollback (README "Rolling updates").
 x-update-config: &update-config
   order: stop-first
   parallelism: 1
@@ -35,9 +19,8 @@ x-update-config: &update-config
 services:
   traefik:
     image: traefik:v3.7.13
-    # The swarm provider needs the cluster API. Traefik is constrained to
-    # managers (below), so the local socket always serves it; :ro because
-    # Traefik must only READ services/labels, never create containers.
+    # The swarm provider needs the cluster API; the manager constraint below
+    # keeps the local socket authoritative. :ro -- Traefik only reads.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-acme:/data
@@ -46,11 +29,10 @@ services:
     secrets:
       - cloudflare_api_token
     environment:
-      # lego reads the _FILE form natively; the file is the mounted swarm secret.
+      # lego reads any provider var suffixed _FILE from the mounted secret.
       CF_DNS_API_TOKEN_FILE: /run/secrets/cloudflare_api_token
     ports:
-      # ingress mode = routing mesh: node:80/443 answers on all three
-      # managers even though traffic may be served by a task on any of them.
+      # ingress = routing mesh: every node answers on 80/443.
       - target: 80
         published: 80
         protocol: tcp
@@ -64,7 +46,6 @@ services:
       - traefik
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      # web exists only to bounce to websecure (currently 308)
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --providers.swarm.endpoint=unix:///var/run/docker.sock
@@ -73,19 +54,13 @@ services:
       - --certificatesresolvers.le.acme.email=job.r.huisman@gmail.com
       - --certificatesresolvers.le.acme.storage=/data/acme.json
       - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
-      # (no acme.domains here: removed in v3 -- routers declare
-      # tls.domains[0].main=*.swarm.huisman.dev themselves, all resolving
-      # to this one cert)
+      # No acme.domains in v3: each router declares tls.domains[0].main itself.
       - --accesslog=true
       - --log.level=INFO
-      # Serves /ping on the internal `traefik` entrypoint (:8080, not
-      # published); v3 auto-creates that entrypoint when ping is enabled.
       - --ping=true
-    # Declared explicitly so it is visible in the stack file.
-    # `traefik healthcheck --ping` recreates the internal entrypoint itself and
-    # HEADs it -- no other flag needed. Note Swarm *replaces* a task whose
-    # container reports unhealthy, so a broken health command becomes a restart
-    # loop (see the web-check pilot) -- it must be a real check.
+    # `traefik healthcheck --ping` recreates the internal :8080 entrypoint and
+    # HEADs it. Must be a real check: Swarm replaces a task that reports
+    # unhealthy, so a broken command becomes a restart loop (the web-check lesson).
     healthcheck:
       test: ['CMD', 'traefik', 'healthcheck', '--ping']
       interval: 10s
@@ -93,14 +68,9 @@ services:
       retries: 3
       start_period: 10s
     deploy:
-      # replicated:1, deliberately NOT global. Only ONE task may run the ACME
-      # (DNS-01) resolver: multiple replicas race on the same Cloudflare TXT
-      # record because OSS Traefik has no shared-ACME storage (the v1 KV-store
-      # approach was dropped in 2.0; docs recommend an external cert controller
-      # for multi-replica, or Traefik Enterprise). The ingress mesh still
-      # accepts 80/443 on every node and forwards to this task, so any node IP
-      # remains a valid entry. node.role == manager keeps it on a manager, where
-      # the mounted docker.sock can reach the cluster API.
+      # One task, on a manager: only one process may drive the DNS-01 resolver
+      # (no shared ACME storage in OSS Traefik). The mesh still accepts 80/443 on
+      # every node. See README "Routing".
       mode: replicated
       replicas: 1
       placement:

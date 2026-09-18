@@ -1,17 +1,11 @@
-# SearXNG: private metasearch. Routed by Traefik (Host on websecure + the shared
-# le resolver, i.e. the *.swarm.huisman.dev wildcard); no published port.
-#
-# SEARXNG_SECRET comes from the swarm secret `searxng_secret` (seeded by
-# ansible/secrets.yml from SOPS). The image's entrypoint reads $SEARXNG_SECRET
-# and writes it into settings.yml, so the sh wrapper exports it from
-# /run/secrets. The image declares no CMD, so there is nothing to re-declare.
-#
-# Placement: NOT pinned to a node. Its only volume is /var/cache/searxng, a
-# rebuildable result cache, so any worker will do -- `node.role == worker`
-# keeps it off the raft managers without coupling it to one host.
+# Private metasearch. Routed by Traefik (Host on websecure + shared le
+# resolver); no published port. SEARXNG_SECRET comes from the swarm secret
+# `searxng_secret`; the entrypoint reads $SEARXNG_SECRET, so the sh wrapper
+# exports it from /run/secrets. The image declares no CMD, so there is nothing
+# to re-declare. Placement: any worker -- its only volume is a rebuildable cache.
 
-# Rolling updates: stateless (only a disposable cache volume), so start-first
-# for zero-downtime. Do NOT add failure_action: rollback -- see README.
+# Rolling updates: stateless (disposable cache), start-first. Do NOT add
+# failure_action: rollback -- see README.
 x-update-config: &update-config
   order: start-first
   parallelism: 1

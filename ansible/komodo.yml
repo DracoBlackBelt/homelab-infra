@@ -1,29 +1,20 @@
 # Install the Komodo Periphery agent (systemd, outbound mode) on every VM.
 #
-# The agent DIALS Komodo Core over the tailnet -- Core never needs to reach
-# these hosts -- so this playbook must run AFTER tailscale.yml (see site.yml)
-# and the core address in group_vars/vms/all.yml must be a MagicDNS/ts.net
-# name. With core_address set, periphery's inbound server (port 8120) stays
-# disabled; no passkeys, no SSL certs, nothing to open.
+# The agent DIALS Core over the tailnet (Core never reaches these hosts), so
+# this runs after tailscale.yml and komodo_core_address must be a MagicDNS/
+# ts.net name. With core_address set, periphery's inbound port 8120 stays
+# disabled.
 #
-# Authentication is a keypair auto-generated under /etc/komodo/keys/ on first
-# dial. The SOPS-encrypted komodo_onboarding_key (group_vars/vms/secrets.sops.yml) is what
-# lets a never-before-seen agent create its Server in Core: create ONE
-# reusable onboarding key in the Komodo UI (Servers -> Onboarding Keys) and
-# every current and future VM self-onboards as a Server named after its
-# inventory hostname -- which tailscale.yml sets as the tailnet hostname too.
+# Auth is a keypair in /etc/komodo/keys/, generated on first dial. The
+# SOPS-encrypted komodo_onboarding_key lets a new agent create its Server in
+# Core: one reusable key (Komodo UI -> Servers -> Onboarding Keys) covers every
+# current and future VM, self-onboarding as a server named after its inventory
+# hostname (== the tailnet hostname). The rendered config keeps that key on disk
+# after first use -- deliberate, see templates/periphery.config.toml.j2.
 #
-# The onboarding key is only *consumed* until the Server exists, but this play
-# re-renders the config every run, so the key stays in the 0600 file on disk,
-# unused. That is a deliberate tradeoff (see templates/periphery.config.toml.j2):
-# removing it is a manual edit, and re-onboarding a deleted Server would then
-# need a fresh key.
+# Version updates: bump komodo_version AND the checksums below together.
 #
-# Version updates: bump komodo_version + the release checksums below, rerun.
-#
-# Usage:
-#   cd ansible && ansible-playbook komodo.yml
-#   cd ansible && ansible-playbook komodo.yml --limit komodo-srv-01
+# Usage: cd ansible && ansible-playbook komodo.yml [--limit <vm>]
 - name: Install and connect Komodo Periphery
   hosts: vms
   gather_facts: true

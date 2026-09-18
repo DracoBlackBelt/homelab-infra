@@ -1,11 +1,9 @@
-# VMs cloned from the golden template looked up in templates.tf. The map is
-# empty on purpose: real VMs are declared in terraform.tfvars (gitignored),
-# so this file is the schema, not the inventory.
-# cores/memory/disk_size are optional -- omit them for the defaults.
-# disk_size must be >= the template's disk size (16 GiB as of the current
-# build, docs/golden-template.md): a clone inherits the template volume and
-# Proxmox can only grow a disk, never shrink it, so a smaller value fails at
-# apply time.
+# VMs cloned from the golden template (templates.tf). This file is the schema,
+# not the inventory: the actual VMs live in terraform.tfvars, which is committed.
+# cores/memory/gateway/disk_size are optional -- omit them for the type defaults.
+#
+# disk_size must be >= the template's (16 GiB): a clone inherits its volume and
+# Proxmox can only grow a disk, never shrink it, so a smaller value fails at apply.
 variable "vms" {
   type = map(object({
     vm_id     = number
@@ -25,6 +23,8 @@ variable "vms" {
   }
 }
 
+# Not proxmox_cloned_vm (experimental): it cannot manage the cloud-init
+# initialization block, EFI or the guest agent -- all load-bearing here.
 resource "proxmox_virtual_environment_vm" "vms" {
   for_each = var.vms
 
@@ -36,12 +36,10 @@ resource "proxmox_virtual_environment_vm" "vms" {
     vm_id = data.proxmox_vm.golden_template.id
   }
 
-  # qemu-guest-agent is already on the template's disk, so enabling the agent
-  # here attaches the virtio-serial channel the daemon binds to and it answers
-  # on first boot -- no provisioning step. The provider therefore waits for a
-  # real guest IP before calling the VM created. timeout cuts the 15m default
-  # down: if the agent has not answered within 5m the template is broken, and
-  # failing fast beats a quarter-hour hang.
+  # The agent is on the template's disk; enabling it here attaches the
+  # virtio-serial channel it binds to, so it answers on first boot. The provider
+  # then waits for a real guest IP before reporting the VM created. timeout beats
+  # the 15m default: no answer in 5m means the template is broken.
   agent {
     enabled = true
     timeout = "5m"
@@ -132,13 +130,10 @@ resource "proxmox_virtual_environment_vm" "vms" {
   }
 }
 
-# Read by ansible/inventory/tofu.py, which is Ansible's only inventory: add a VM
-# in terraform.tfvars, apply, and Ansible picks it up on the next run, with
-# nothing to keep in sync by hand.
-#
-# The addresses come from the config rather than from the agent's report. They
-# are what cloud-init was told to set, so they are known before the VM boots and
-# cannot go stale between an apply and a play.
+# Consumed by ansible/inventory/tofu.py -- the inventory for the VMs (prox.yml
+# adds the Proxmox host). Add a VM in terraform.tfvars, apply, and Ansible picks
+# it up with nothing to sync by hand. Addresses come from the config, not the
+# agent's report, so they cannot go stale between an apply and a play.
 output "vm_inventory" {
   description = "name => host vars, consumed by the Ansible inventory script."
 

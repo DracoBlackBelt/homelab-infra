@@ -1,14 +1,11 @@
-# Stacks deployed to the 'homelab' swarm (swarms.toml). The compose files
-# live in this same repo under stacks/ -- Komodo clones homelab-infra and runs
-# `docker stack deploy`. The repo is public, so no `git_account` is needed:
-# Komodo clones it anonymously and no GitHub token is registered in Core.
+# Stacks deployed to the 'homelab' swarm (swarms.toml). Compose files live in
+# this repo under stacks/ -- the ResourceSync clones homelab-infra and runs
+# `docker stack deploy`. The repo is public, so no `git_account` is needed.
 #
-# deploy = true means: running the ResourceSync also deploys the stack.
-#
-# Caveat: the sync re-deploys when this TOML changes, NOT when a referenced
-# compose file changes (Komodo #1120 / #1381). A compose-only edit therefore
-# needs an explicit Deploy in the UI. Deleting a stack here is likewise a
-# confirmation-gated action, not automatic.
+# deploy = true: running the ResourceSync also deploys the stack. Caveat: it
+# re-deploys when this TOML changes, NOT when a referenced compose file changes
+# (Komodo #1120 / #1381), so a compose-only edit needs an explicit Deploy in the
+# UI. Removing a block is likewise confirmation-gated, not automatic.
 
 [[stack]]
 name = "whoami"
@@ -18,21 +15,21 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/whoami/docker-compose.yaml"]
 
 [[stack]]
 name = "uptime-kuma"
-description = "Uptime monitoring webui (stateful sqlite volume pinned to swarm-wrk-01)"
+description = "Uptime monitoring webui (sqlite volume on pool 01)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/uptime-kuma/docker-compose.yaml"]
 
@@ -44,98 +41,98 @@ deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/traefik/docker-compose.yaml"]
 
 [[stack]]
 name = "freshrss"
-description = "RSS reader + its Postgres (db on a stack-local network only; pinned to swarm-wrk-03)"
+description = "RSS reader + its Postgres (db on a stack-local network only; pool 03)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/freshrss/docker-compose.yaml"]
 
 [[stack]]
 name = "searxng"
-description = "Private metasearch (searxng_secret; pinned to swarm-wrk-01)"
+description = "Private metasearch (searxng_secret; any worker, disposable cache)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/searxng/docker-compose.yaml"]
 
 [[stack]]
 name = "flame"
-description = "Start page/dashboard (flame_password; pinned to swarm-wrk-01)"
+description = "Start page/dashboard (flame_password; pool 01)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/flame/docker-compose.yaml"]
 
 [[stack]]
 name = "web-check"
-description = "Site/security analysis, internal-only (SSRF); pinned to swarm-wrk-02"
+description = "Site/security analysis, internal-only (SSRF); any worker"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/web-check/docker-compose.yaml"]
 
 [[stack]]
 name = "forgejo"
-description = "Self-hosted git, SQLite on a pinned volume; public later via Authelia"
+description = "Self-hosted git (SQLite volume on pool 02)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/forgejo/docker-compose.yaml"]
 
 [[stack]]
 name = "vaultwarden"
-description = "Bitwarden-compatible password server (vaultwarden_admin_token; pinned to swarm-wrk-03)"
+description = "Bitwarden-compatible password server (vaultwarden_admin_token; pool 03)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/vaultwarden/docker-compose.yaml"]
 
 [[stack]]
 name = "dawarich"
-description = "Location history (Rails + PostGIS + Redis); pinned to swarm-wrk-02"
+description = "Location history (Rails + PostGIS + Redis; pool 02)"
 tags = ["swarm", "app"]
 deploy = true
 
 [stack.config]
 swarm = "homelab"
-      git_provider = "github.com"
-      repo = "DracoBlackBelt/homelab-infra"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/dawarich/docker-compose.yaml"]

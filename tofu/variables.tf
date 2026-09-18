@@ -1,4 +1,7 @@
-variable "pve_endpoint" { type = string }
+variable "pve_endpoint" {
+  type        = string
+  description = "Proxmox API endpoint (set in terraform.tfvars), e.g. https://prox.int.huisman.dev."
+}
 
 variable "pve_api_token" {
   type        = string
