@@ -3,7 +3,8 @@
 #
 # The swarm router is an explicit ALLOWLIST: only the six named hosts resolve
 # here, so labelling a new internal app in the swarm does NOT expose it. To
-# publish another host, add it to the regex and add a public A record.
+# publish another host, add it to the regex (public DNS is a wildcard, so no
+# per-host record is needed).
 http:
   routers:
     # Homelab swarm apps, mirrored under their internal names so the Host

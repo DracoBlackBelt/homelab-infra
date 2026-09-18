@@ -160,3 +160,74 @@ file_paths = ["stacks/traefik-edge/docker-compose.yaml"]
 environment = """
 CF_DNS_API_TOKEN = [[CF_DNS_API_TOKEN]]
 """
+
+# --- rest of the VPS (server = "PBS") ---------------------------------------
+# The auth plane and the backup pair also live on the VPS. Every secret is a
+# Komodo *variable* (Settings -> Variables, marked secret) interpolated into the
+# stack environment, so no secret is ever in git. The composes bind-mount host
+# paths (/opt/...) and are documented in each stack's header.
+[[stack]]
+name = "pocket-id"
+description = "Pocket-ID OIDC provider (VPS; data is a host bind mount, key is a secret variable)"
+tags = ["infra", "vps", "auth"]
+deploy = true
+
+[stack.config]
+server = "PBS"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/pocket-id/docker-compose.yaml"]
+environment = """
+ENCRYPTION_KEY = [[POCKETID_ENCRYPTION_KEY]]
+"""
+
+[[stack]]
+name = "tinyauth"
+description = "Forward-auth gate with Pocket-ID OIDC (VPS; cookie + client secrets are variables)"
+tags = ["infra", "vps", "auth"]
+deploy = true
+
+[stack.config]
+server = "PBS"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/tinyauth/docker-compose.yaml"]
+environment = """
+TINYAUTH_SECRET = [[TINYAUTH_SECRET]]
+TINYAUTH_POCKETID_SECRET = [[TINYAUTH_POCKETID_SECRET]]
+"""
+
+[[stack]]
+name = "seaweedfs"
+description = "SeaweedFS S3 store for zerobyte backups (VPS; tailnet-only ports, host bind data)"
+tags = ["infra", "vps", "backup"]
+deploy = true
+
+[stack.config]
+server = "PBS"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/seaweedfs/docker-compose.yaml"]
+environment = """
+AWS_ACCESS_KEY_ID = [[SEAWEEDFS_S3_ACCESS_KEY]]
+AWS_SECRET_ACCESS_KEY = [[SEAWEEDFS_S3_SECRET_KEY]]
+"""
+
+[[stack]]
+name = "zerobyte"
+description = "restic backup automation writing to SeaweedFS S3 (VPS; session secret is a variable)"
+tags = ["infra", "vps", "backup"]
+deploy = true
+
+[stack.config]
+server = "PBS"
+git_provider = "github.com"
+repo = "DracoBlackBelt/homelab-infra"
+branch = "main"
+file_paths = ["stacks/zerobyte/docker-compose.yaml"]
+environment = """
+APP_SECRET = [[ZEROBYTE_APP_SECRET]]
+"""

@@ -1,0 +1,27 @@
+# SeaweedFS "mini" (master + volume + filer + S3) on the VPS -- the S3 store
+# behind zerobyte's restic backups (buckets yuvomi-backups, zerobyte-repo).
+# Adopted from a Dockhand-managed container that had no compose in git.
+#
+# Ports bind the tailnet IP only; the S3 API is never public. /opt/seaweedfs is
+# the data directory and also holds .mini_kek_passphrase / .mini_sse_kek --
+# losing or changing those makes existing objects unreadable, so keep it intact.
+#
+# S3 credentials come from Komodo *secret* variables. Rotating them means
+# updating every client in the same change -- in practice zerobyte's stored
+# restic repo credentials (configured in its UI, not here).
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    restart: unless-stopped
+    command: ["mini", "-dir=/data"]
+    environment:
+      S3_BUCKET: yuvomi-backups,zerobyte-repo
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_S3_SECRET_KEY}
+    volumes:
+      - /opt/seaweedfs:/data
+    ports:
+      - "100.126.232.11:8333:8333"
+      - "100.126.232.11:7333:7333"
+      - "100.126.232.11:8888:8888"
+      - "100.126.232.11:23646:23646"

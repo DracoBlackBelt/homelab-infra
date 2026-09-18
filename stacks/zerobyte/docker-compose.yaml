@@ -1,0 +1,26 @@
+# Zerobyte: restic backup automation -- a VPS stack. It backs yuvomi (on
+# docker-srv-01) up into the SeaweedFS S3 store on this same host. Adopted from
+# a Dockhand-managed container that had no compose in git.
+#
+# APP_SECRET signs UI sessions, from a Komodo *secret* variable. Joining `edge`
+# lets the edge route it, but it is deliberately NOT in dynamic.yml, so it is not
+# published. The repo credentials for the S3 target live in zerobyte's own data,
+# not in this file.
+services:
+  zerobyte:
+    image: ghcr.io/nicotsx/zerobyte:v0.42
+    restart: unless-stopped
+    environment:
+      BASE_URL: https://zerobyte.huisman.dev
+      APP_SECRET: ${ZEROBYTE_APP_SECRET}
+      TRUST_PROXY: "true"
+      TZ: Europe/Amsterdam
+    volumes:
+      - /opt/zerobyte:/var/lib/zerobyte
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true

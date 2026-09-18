@@ -1,0 +1,29 @@
+# Pocket-ID OIDC provider -- a VPS stack (server = "PBS"), NOT swarm. It is the
+# auth plane: tinyauth (and later the swarm apps) authenticate against it. The
+# public edge routes id.huisman.dev here via dynamic.yml; no port is published.
+#
+# ENCRYPTION_KEY comes from a Komodo *secret* variable. It encrypts everything
+# under /opt/pocket-id/data, so it must stay byte-for-byte: rotating it makes the
+# existing database unreadable. The data is a host bind mount, not a volume.
+services:
+  pocket-id:
+    image: pocketid/pocket-id:v2
+    restart: unless-stopped
+    environment:
+      APP_URL: https://id.huisman.dev
+      TRUST_PROXY: "true"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    volumes:
+      - /opt/pocket-id/data:/app/data
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "/app/pocket-id", "healthcheck"]
+      interval: 1m30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+
+networks:
+  edge:
+    external: true

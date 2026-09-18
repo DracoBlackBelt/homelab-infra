@@ -1,0 +1,37 @@
+# Tinyauth forward-auth gate -- a VPS stack. Pocket-ID is the sole login method
+# and the public edge routes auth.huisman.dev here (dynamic.yml). A later round
+# wires it as forwardAuth middleware for the public swarm hosts.
+#
+# TINYAUTH_SECRET (cookie signing) and TINYAUTH_POCKETID_SECRET (the OIDC client
+# secret created in Pocket-ID) come from Komodo *secret* variables; never in git.
+# The container joins `edge` so the edge reaches it as http://tinyauth:3000.
+services:
+  tinyauth:
+    image: ghcr.io/tinyauthapp/tinyauth:v5
+    restart: unless-stopped
+    environment:
+      TINYAUTH_APPURL: https://auth.huisman.dev
+      TINYAUTH_SECRET: ${TINYAUTH_SECRET}
+      TINYAUTH_AUTH_TRUSTEDPROXIES: 172.22.0.0/16
+
+      # Pocket ID as the only provider (no local TINYAUTH_AUTH_USERS).
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_CLIENTID: fd204d51-4f7f-4da2-bc25-00e3407b14be
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_CLIENTSECRET: ${TINYAUTH_POCKETID_SECRET}
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_AUTHURL: https://id.huisman.dev/authorize
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_TOKENURL: https://id.huisman.dev/api/oidc/token
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_USERINFOURL: https://id.huisman.dev/api/oidc/userinfo
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_REDIRECTURL: https://auth.huisman.dev/api/oauth/callback/pocketid
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_SCOPES: openid email profile groups
+      TINYAUTH_OAUTH_PROVIDERS_POCKETID_NAME: Pocket ID
+      TINYAUTH_OAUTH_AUTOREDIRECT: pocketid
+
+      # The OIDC handshake would accept any Pocket-ID login; pin it to one account.
+      TINYAUTH_OAUTH_WHITELIST: job.r.huisman@gmail.com
+    volumes:
+      - /opt/tinyauth/data:/data
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
