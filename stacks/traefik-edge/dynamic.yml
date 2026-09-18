@@ -40,6 +40,17 @@ http:
         domains:
           - main: "*.huisman.dev"
 
+    # The backup UI also lives on the VPS (edge net), not the swarm.
+    zerobyte:
+      rule: 'Host(`zerobyte.huisman.dev`)'
+      entryPoints:
+        - websecure
+      service: zerobyte
+      tls:
+        certResolver: le
+        domains:
+          - main: "*.huisman.dev"
+
   services:
     # The swarm handoff: host-mode 8443 on the edge-labelled manager, reached
     # over the tailnet. passHostHeader keeps the original Host so the swarm
@@ -59,6 +70,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://tinyauth:3000"
+
+    zerobyte:
+      loadBalancer:
+        servers:
+          - url: "http://zerobyte:4096"
 
   serversTransports:
     # Verified TLS to the swarm edge. Any single-label name under the wildcard
