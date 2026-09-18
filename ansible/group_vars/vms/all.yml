@@ -20,6 +20,13 @@ swarm_manager_hosts:
   - komodo-srv-02
   - komodo-srv-03
 
+# The public edge: the one manager whose Traefik task publishes the host-mode
+# handoff port (8443) that the VPS reverse-proxies to. Host-mode, not ingress:
+# the VPS arrives over the 1280-MTU tailnet and the ingress/VXLAN path is 1450,
+# which silently drops packets. swarm.yml labels this node `edge=true` and the
+# Traefik stack constrains on it, so the pin follows a role, not a hostname.
+swarm_edge_host: komodo-srv-01
+
 # Placement POOLS (swarm.yml labels each node `pool=<value>`; composes pin with
 # `node.labels.pool == "<value>"`). A pool names the worker whose node-LOCAL
 # volumes an app's data lives on, so the pin follows the DATA, not the hostname:

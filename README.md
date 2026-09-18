@@ -120,6 +120,18 @@ Everything is driven by git: edit, push, sync, deploy.
   none of the wrapper traps). The single task keeps `acme.json` in the node-local
   `traefik-acme` volume -- one wildcard cert, not one per node.
 
+### Public access (the VPS edge)
+
+The swarm itself never faces the internet. `stacks/traefik` reserves a **host-mode** `8443`
+on the single node labelled `edge` (`swarm_edge_host`): that is the handoff the VPS edge
+reverse-proxies to over the tailnet, preserving the original `Host`. `websecure` trusts the
+VPS's `X-Forwarded-For`, so apps log the real client IP. Host-mode is not incidental --
+the VPS arrives over the 1280-byte tailnet while the `ingress`/`proxy` overlays ride a
+1450-byte VXLAN, so public traffic routed through the mesh silently drops the larger
+replies. Only named hosts are ever exposed; the AdGuard rewrites stay internal, so on-LAN
+clients never involve the VPS. The trusted IP is a tailnet address and must be updated if
+`pbs` re-registers.
+
 ### Placement: pools, not hostnames
 
 Swarm named volumes are **node-local**, so any service with a volume must be pinned. The
@@ -140,7 +152,8 @@ Current split: pool `01` = uptime-kuma, flame; pool `02` = forgejo, dawarich; po
 freshrss, vaultwarden. Deliberately unpinned but constrained to `node.role == worker` (so
 they stay off the raft managers): `searxng` (disposable cache) and `web-check`
 (stateless). `whoami` is unpinned entirely -- spreading across nodes is the point of a mesh
-canary. Traefik keeps `node.role == manager`.
+canary. Traefik keeps `node.role == manager` plus the `edge` label (`swarm_edge_host`),
+which pins the host-mode handoff port for the VPS edge to one node.
 
 ### Secrets into containers
 

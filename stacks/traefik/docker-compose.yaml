@@ -4,6 +4,10 @@
 # task -> `proxy` overlay -> app:port; :80 308s to :443 and TLS is one Let's
 # Encrypt wildcard via Cloudflare DNS-01. See README "Routing".
 #
+# The VPS public edge reverse-proxies to this task over the tailnet on the
+# host-mode 8443 published below -- not the mesh: the 1450-byte VXLAN over a
+# 1280-byte tailnet silently drops replies. See README "Public access".
+#
 # The image is ENTRYPOINT /entrypoint.sh + CMD ["traefik"], and a compose
 # `command:` REPLACES the CMD -- keep `traefik` first below, or /entrypoint.sh
 # tries to exec "--entrypoints..." as a binary.
@@ -41,6 +45,13 @@ services:
         published: 443
         protocol: tcp
         mode: ingress
+      # Host-mode handoff for the VPS public edge: bypasses the routing mesh so
+      # this hop never rides the 1450-MTU VXLAN over the 1280-MTU tailnet. Only
+      # the edge-labelled node binds it.
+      - target: 443
+        published: 8443
+        protocol: tcp
+        mode: host
     command:
       # `traefik` first: compose command replaces the image CMD (see header).
       - traefik
@@ -48,6 +59,10 @@ services:
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      # Trust the VPS's X-Forwarded-For (it overwrites XFF with the real client),
+      # so apps log the client IP, not the VPS. Internal ingress clients are not
+      # this IP, so their headers stay ignored exactly as today.
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=100.126.232.11
       - --providers.swarm.endpoint=unix:///var/run/docker.sock
       - --providers.swarm.exposedbydefault=false
       - --providers.swarm.network=proxy
@@ -76,6 +91,7 @@ services:
       placement:
         constraints:
           - node.role == manager
+          - node.labels.edge == true
       restart_policy:
         condition: any
       update_config: *update-config

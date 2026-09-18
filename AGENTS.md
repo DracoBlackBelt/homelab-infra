@@ -139,7 +139,10 @@ secret-wrapper traps) are in README -- copy an existing stack rather than invent
   bollard cannot deserialize it, which empties its swarm service list and marks every
   stack `Down` while the apps keep running. See README "Rolling updates".
 - Placement-pool labels must exist before a compose referencing them is deployed, or the
-  service is unschedulable -- run `swarm.yml` first (and after adding a worker).
+  service is unschedulable -- run `swarm.yml` first (and after adding a worker). Same for
+  the `edge` label: the Traefik stack constrains on `node.labels.edge == true`, and the
+  VPS public edge targets that node's tailnet IP `:8443` (host-mode, not the mesh -- the
+  1450-byte overlay over the 1280-byte tailnet drops packets). See README "Public access".
 - `whoami` is a `scratch` image: no shell, no client, no healthcheck -- Uptime Kuma probes
   it externally.
 - The old all-in-one `ansible/setup.yml` is gone (`git show bafa092:ansible/setup.yml`);

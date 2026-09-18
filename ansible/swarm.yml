@@ -5,7 +5,9 @@
 # observed by komodo/swarms.toml). `swarm_manager_hosts` (group_vars/vms/all.yml)
 # are the 3 raft managers (quorum survives one loss) and hold the Traefik edge;
 # every other member joins as a WORKER running app tasks, so an app OOM can't
-# disturb raft. `swarm_init_manager` is the bootstrap leader and join point;
+# disturb raft. `swarm_edge_host` is the single manager that also carries the
+# `edge` label the public VPS handoff constrains on. `swarm_init_manager` is the
+# bootstrap leader and join point;
 # every node advertises on its LAN address (vmbr0) -- ports 2377/7946/4789 stay
 # on-LAN.
 #
@@ -245,6 +247,26 @@
       loop_control:
         label: "{{ item.item.key }} pool={{ item.item.value }}"
       when: ((item.stdout | from_json) or {}).get('pool') != item.item.value
+
+    # Public-edge label (swarm_edge_host above): the manager that publishes the
+    # host-mode handoff port the VPS reverse-proxies to. Must exist BEFORE the
+    # Traefik stack constraining on it is deployed, or the service is
+    # unschedulable. Same read-then-write shape as the pool labels.
+    - name: Read the public-edge node's labels
+      ansible.builtin.command: >-
+        docker node inspect {{ swarm_edge_host }} --format
+        '{% raw %}{{ json .Spec.Labels }}{% endraw %}'
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      register: edge_node_labels
+      changed_when: false
+
+    - name: Label the public-edge node
+      ansible.builtin.command: >-
+        docker node update --label-add edge=true {{ swarm_edge_host }}
+      delegate_to: "{{ swarm_init_manager }}"
+      run_once: true
+      when: ((edge_node_labels.stdout | from_json) or {}).get('edge') != 'true'
 
     # Cluster-wide overlay shared by the Traefik edge and every routed app.
     # Stack-created networks get a '<stack>_' prefix and thus can't be shared
