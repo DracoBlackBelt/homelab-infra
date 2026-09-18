@@ -164,10 +164,16 @@ Everything is driven by git: edit, push, sync, deploy.
 ### Placement: pools, not hostnames
 
 Swarm named volumes are **node-local**, so any service with a volume must be
-pinned. The pin names a *pool* (`node.labels.pool == "01"`) rather than a
+pinned. The pin names a *pool* (`node.labels.pool == 01`) rather than a
 hostname: `swarm.yml` labels each worker from `swarm_node_labels` in
 `group_vars/vms/all.yml`, so replacing a VM means relabelling the new node once,
 not editing nine compose files.
+
+**Do not quote the value** (`node.labels.pool == "01"` is wrong). A YAML plain
+scalar keeps the inner quotes, so Docker is handed the literal value `"01"` and
+rejects the whole deploy with `value '"01"' is invalid` — which is how the first
+rollout of this took the pool-pinned stacks down while the `node.role` ones
+succeeded.
 
 Being honest about what that buys: a pool is a **renaming abstraction, not
 HA**. A node-local volume still cannot move — if the node dies, the service and
