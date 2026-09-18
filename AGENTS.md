@@ -154,6 +154,19 @@ secret-wrapper traps) are in README -- copy an existing stack rather than invent
   `docker compose` on the VPS, and the swarm-only `docker stack config` CI step parses it
   but ignores keys like `restart`. Its public allowlist is `dynamic.yml`; its
   `CF_DNS_API_TOKEN` must exist as a Komodo secret variable or the deploy fails.
+- The VPS's other stacks are server stacks too (`server = "PBS"`): `pocket-id`, `tinyauth`,
+  `seaweedfs`, `zerobyte` (Komodo Core manages itself). Their secrets are Komodo
+  **variables** interpolated as `[[NAME]]`, and the `environment` key must equal the compose
+  `${NAME}` -- `FOO = [[BAR]]` exports `FOO`, so a compose reading `${BAR}` starts with an
+  empty secret. Their data is host bind mounts under `/opt`; pocket-id's `ENCRYPTION_KEY`
+  and the seaweedfs S3 keys must be preserved, not rotated casually.
+- `zerobyte` needs `cap_add: SYS_ADMIN`, `devices: /dev/fuse` and
+  `security_opt: apparmor:unconfined` to mount WebDAV/NFS/SMB/SFTP sources: on Debian the
+  docker-default AppArmor profile denies the mount syscall even with `SYS_ADMIN`, and the
+  failure reads as `can't open fuse device` / `mounting failed: Permission denied`.
+- `docker-srv-01` is a Komodo **server that is not in `terraform.tfvars`**, and `baikal`
+  plus `yuvomi` (`planner.huisman.dev`) are UI-managed stacks on it. Declare the host or
+  migrate the apps -- it is the last undeclared infrastructure.
 - The VPS (netcup) filters **outbound UDP** by default -- 53 and 123 both time out while
   `tcp/53` works and Tailscale's `100.100.100.100` resolves. That silently breaks ACME
   DNS-01: lego's authoritative-NS propagation check never completes, no certificate is

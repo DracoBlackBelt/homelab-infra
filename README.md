@@ -136,7 +136,8 @@ The edge itself is `stacks/traefik-edge`, a **Compose stack on `pbs`** (declared
 `server = "PBS"`, not a swarm stack). It runs with the **file provider only** -- no docker
 socket -- so its entire routing table is the committed `dynamic.yml`: an explicit allowlist
 of `whoami`, `kuma`, `git`, `rss`, `timeline`, `home` on `*.swarm.huisman.dev`, plus `id.`
-and `auth.` for the auth plane (which stay on the VPS, unproxied). Labelling a new app in
+and `auth.` for the auth plane (which stay on the VPS, unproxied) and `zerobyte.` for the
+VPS backup UI. Labelling a new app in
 the swarm therefore does **not** expose it: publishing a host means adding it to the
 allowlist, and redeploying this stack. Public DNS is the Cloudflare wildcard
 (`*.huisman.dev` and `*.swarm.huisman.dev` both point at the VPS, DNS-only), so no per-host
@@ -191,9 +192,13 @@ Two patterns, and only two:
      grace period expires;
    - **double every `$`** (`$$`) so compose expands at deploy time, not container start.
 
-Secrets are only ever **swarm secrets** (`external: true`), seeded by `ansible/secrets.yml`
-from SOPS or created in the Komodo UI -- never inline in a compose file, never in a synced
-TOML, because both are plaintext in a public repo.
+Secrets are never inline in a compose file and never in a synced TOML -- both are plaintext
+in a public repo. Swarm services get them only as **swarm secrets** (`external: true`),
+seeded by `ansible/secrets.yml` from SOPS or created in the Komodo UI. The VPS server
+stacks use the equivalent Komodo mechanism instead: the value is a **variable** (Settings
+-> Variables, marked secret) and the stack's `environment` references it as `[[NAME]]`.
+The key must match the `${NAME}` the compose interpolates -- `FOO = [[BAR]]` exports `FOO`,
+so a compose reading `${BAR}` silently gets an empty secret.
 
 ### Rolling updates
 
@@ -242,6 +247,12 @@ is not cosmetic -- moving one means moving its data too. All nodes run Docker 29
 | vaultwarden | `vault` | pool 03 | sqlite volume |
 
 Traefik itself is the edge, on a manager. `komodo/stacks.toml` is the authoritative list.
+
+The VPS (`pbs`) runs its own **server stacks**, declared in the same file with
+`server = "PBS"`: `traefik-edge`, `pocket-id` + `tinyauth` (the auth plane), and the backup
+pair `seaweedfs` + `zerobyte` (restic automation writing to the S3 store). They bind host
+paths under `/opt` -- data that must survive redeploys -- and take their secrets from Komodo
+variables. Komodo Core manages itself and is the one stack not declared here.
 
 ## Agent access
 
