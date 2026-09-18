@@ -138,9 +138,17 @@ socket -- so its entire routing table is the committed `dynamic.yml`: an explici
 of `whoami`, `kuma`, `git`, `rss`, `timeline`, `home` on `*.swarm.huisman.dev`, plus `id.`
 and `auth.` for the auth plane (which stay on the VPS, unproxied). Labelling a new app in
 the swarm therefore does **not** expose it: publishing a host means adding it to the
-allowlist, adding a public A record, and redeploying this stack. TLS for both wildcards is
-Cloudflare DNS-01, and the token is a Komodo **secret variable** (`CF_DNS_API_TOKEN`)
-interpolated into the stack environment -- never in git.
+allowlist, and redeploying this stack. Public DNS is the Cloudflare wildcard
+(`*.huisman.dev` and `*.swarm.huisman.dev` both point at the VPS, DNS-only), so no per-host
+record is needed. TLS is Cloudflare DNS-01, and the token is a Komodo **secret variable**
+(`CF_DNS_API_TOKEN`) interpolated into the stack environment -- never in git.
+
+TLS is also the one place the VPS host itself matters: netcup filters **outbound UDP** by
+default (53 and 123 both time out; `tcp/53` and Tailscale's `100.100.100.100` work), which
+makes lego's DNS-01 authoritative-NS check fail silently -- no certificate is issued and
+the edge serves its self-signed fallback, so clients report the host as unreachable. The
+netcup SCP firewall must allow outbound UDP and the matching inbound replies from source
+ports 53/123; it is stateless, so a one-way rule is not enough.
 
 ### Placement: pools, not hostnames
 

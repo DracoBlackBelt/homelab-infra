@@ -69,7 +69,8 @@ image tags) + one `[[stack]]` block in `komodo/stacks.toml` (`swarm = "homelab"`
 `deploy = true`), then push. Webapps route through Traefik, never published ports -- copy
 `stacks/whoami/` (see README "Adding an app" / "Routing"). Public exposure is separate: a
 swarm label alone does not publish anything -- add the host to the allowlist in
-`stacks/traefik-edge/dynamic.yml` plus a public A record. Secrets: add the value to
+`stacks/traefik-edge/dynamic.yml` (public DNS is a wildcard, so no record is needed).
+Secrets: add the value to
 `vms/secrets.sops.yml` and the name to `secrets.yml`, then run
 `ansible-playbook secrets.yml` **before** the push (an `external: true` secret that does
 not exist fails the deploy), or create it in the Komodo UI. The sync re-deploys when the
@@ -153,6 +154,14 @@ secret-wrapper traps) are in README -- copy an existing stack rather than invent
   `docker compose` on the VPS, and the swarm-only `docker stack config` CI step parses it
   but ignores keys like `restart`. Its public allowlist is `dynamic.yml`; its
   `CF_DNS_API_TOKEN` must exist as a Komodo secret variable or the deploy fails.
+- The VPS (netcup) filters **outbound UDP** by default -- 53 and 123 both time out while
+  `tcp/53` works and Tailscale's `100.100.100.100` resolves. That silently breaks ACME
+  DNS-01: lego's authoritative-NS propagation check never completes, no certificate is
+  issued, and the edge serves its self-signed fallback (clients see
+  `ssl_verify_result=18`, i.e. "unreachable"). Fix it in the netcup SCP firewall in
+  **both** directions -- outbound UDP *and* inbound from source ports 53/123 -- because it
+  is stateless; otherwise renewals break again in ~60 days. A working `tcp/53` is not a
+  diagnosis.
 - In `komodo.yml`, `komodo_version` and `komodo_release_checksums` must change **together**
   or `get_url` fails the checksum.
 
