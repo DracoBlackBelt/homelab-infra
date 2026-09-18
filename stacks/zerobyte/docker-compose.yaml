@@ -11,12 +11,16 @@ services:
     image: ghcr.io/nicotsx/zerobyte:v0.42
     restart: unless-stopped
     # Required to mount remote sources (WebDAV/NFS/SMB/SFTP); upstream's compose
-    # ships these. Without them a configured WebDAV volume fails with
-    # "can't open fuse device" / "mount: permission denied".
+    # ships the caps/device. On Debian the docker-default AppArmor profile still
+    # blocks the mount syscall with SYS_ADMIN alone ("Permission denied"), so the
+    # profile is unconfined -- without it a configured WebDAV volume fails with
+    # "can't open fuse device" / "mounting failed: Permission denied".
     cap_add:
       - SYS_ADMIN
     devices:
       - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
     environment:
       BASE_URL: https://zerobyte.huisman.dev
       APP_SECRET: ${ZEROBYTE_APP_SECRET}
