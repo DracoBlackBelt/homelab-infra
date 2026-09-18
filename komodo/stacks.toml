@@ -212,8 +212,8 @@ repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/seaweedfs/docker-compose.yaml"]
 environment = """
-AWS_ACCESS_KEY_ID = [[SEAWEEDFS_S3_ACCESS_KEY]]
-AWS_SECRET_ACCESS_KEY = [[SEAWEEDFS_S3_SECRET_KEY]]
+SEAWEEDFS_S3_ACCESS_KEY = [[SEAWEEDFS_S3_ACCESS_KEY]]
+SEAWEEDFS_S3_SECRET_KEY = [[SEAWEEDFS_S3_SECRET_KEY]]
 """
 
 [[stack]]
@@ -229,5 +229,5 @@ repo = "DracoBlackBelt/homelab-infra"
 branch = "main"
 file_paths = ["stacks/zerobyte/docker-compose.yaml"]
 environment = """
-APP_SECRET = [[ZEROBYTE_APP_SECRET]]
+ZEROBYTE_APP_SECRET = [[ZEROBYTE_APP_SECRET]]
 """
